@@ -90,19 +90,17 @@ void test2_min(int size, int dim)
     {
         host_dist[i] = static_cast <float> (rand()) / static_cast <float> (RAND_MAX); 
     }
+
     cudaMemcpy(dev_dist, host_dist, size*dim*sizeof(float), cudaMemcpyHostToDevice) ; 
     
     //dim3 blockSize(1024,1,1) ; 
     //dim3 gridSize(dim/1024 + 1,1,1) ; 
     
-    
     dim3 blockSize(32,3,1) ; 
-
     dim3 gridSize(dim,1,1) ;
     min_2_4<<<gridSize,blockSize>>>(dev_dist,size,dev_sorted) ; 
     cudaDeviceSynchronize();
     
-
     printf("cpu ") ; 
     sort_host(host_dist, size, dim, host_sorted) ;
     
@@ -117,7 +115,7 @@ void test2_min(int size, int dim)
         if(test[i].y != host_sorted[i].y )
         {
         printf("cpu id %d x %f y %f \n",i, host_sorted[i].x,host_sorted[i].y) ;
-         printf("gpu id %d x %f y %f \n",i, test[i].x,test[i].y) ; 
+        printf("gpu id %d x %f y %f \n", i, test[i].x, test[i].y);
         printf("bad y \n") ;  
         }
         if(test[i].x != host_sorted[i].x )
