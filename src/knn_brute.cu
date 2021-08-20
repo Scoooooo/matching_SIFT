@@ -136,21 +136,21 @@ __global__ void min_2_4(float *  dist, int size ,float2 * sorted)
     float2 min_2 ;  
     min_2.x = MAXFLOAT; 
     min_2.y = MAXFLOAT; 
-    //           finds right dist         x dim       y dim pos                         z dim
-    int offset = (blockIdx.x * size) + threadIdx.x + threadIdx.y * blockDim.x + blockDim.x * blockDim.y * threadIdx.z  ;
+    //           finds the dist array         x dim       y dim pos                         z dim
+    int offset = (blockIdx.x * size) + threadIdx.x + threadIdx.y * blockDim.x ;
     
-    for (int i = 0; (i + (threadIdx.x * threadIdx.y * threadIdx.z) ) < size ; i+= (blockDim.x * blockDim.y))
+    for (int i = 0; (i + (blockDim.x * blockDim.y) ) < size ; i+=(blockDim.x * blockDim.y) )
     {
         // float2 temp = 
-        if(dist[i + offset + threadIdx.x] < min_2.x)
+        if(dist[i + offset] < min_2.x)
         {
             min_2.y = min_2.x ; 
-            min_2.x = dist[i + offset + threadIdx.x] ;  
+            min_2.x = dist[i + offset] ;  
         }
         else{
-            if(dist[i + offset + threadIdx.x] < min_2.y)
+            if(dist[i + offset] < min_2.y)
             {
-                min_2.y = dist[i + offset + threadIdx.x] ;  
+                min_2.y = dist[i + offset] ;  
             }
         }
     }
@@ -176,13 +176,11 @@ __global__ void min_2_4(float *  dist, int size ,float2 * sorted)
 
         min_2 = best[threadIdx.x] ; 
         best_in_warp(min_2) ; 
-        if(threadIdx.x == 0 )
+        if(threadIdx.x == 0)
         { 
             sorted[blockIdx.x ] = min_2 ; 
         }
     }
-
-    
 }
 
 
