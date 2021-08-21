@@ -56,7 +56,7 @@ void test_dist(int q_n, int r_n){
     cudaMemcpy(dev_q_points, q_points, q_n* sizeof(des_t), cudaMemcpyHostToDevice) ; 
     cudaMemcpy(dev_r_points, r_points, r_n* sizeof(des_t), cudaMemcpyHostToDevice) ; 
 
-    dim3 block_size(32, 1, 1) ;   
+    dim3 block_size(32, 3, 1) ;   
     dim3 grid_size(q_n, r_n, 1) ;
 
     //fill in the dist array
@@ -95,9 +95,9 @@ void test2_min(int size, int dim)
     //dim3 blockSize(1024,1,1) ; 
     //dim3 gridSize(dim/1024 + 1,1,1) ; 
     
-    dim3 blockSize(32,2,1) ; 
+    dim3 blockSize(32,3,1) ; 
     dim3 gridSize(dim,1,1) ;
-    min_2_3<<<gridSize,blockSize>>>(dev_dist,size,dev_sorted) ; 
+    min_2_4<<<gridSize,blockSize>>>(dev_dist,size,dev_sorted) ; 
     cudaDeviceSynchronize();
     
     printf("cpu ") ; 

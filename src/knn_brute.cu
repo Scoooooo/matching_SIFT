@@ -137,20 +137,20 @@ __global__ void min_2_4(float *  dist, int size ,float2 * sorted)
     min_2.x = MAXFLOAT; 
     min_2.y = MAXFLOAT; 
     //           finds the dist array         x dim       y dim pos                         z dim
-    int offset = (blockIdx.x * size) + threadIdx.x + threadIdx.y * blockDim.x ;
+    int offset = (blockIdx.x * size)+ threadIdx.y * blockDim.x ;
     
     for (int i = 0; (i + (blockDim.x * blockDim.y) ) < size ; i+=(blockDim.x * blockDim.y) )
     {
         // float2 temp = 
-        if(dist[i + offset] < min_2.x)
+        if(dist[i + offset + threadIdx.x ] < min_2.x)
         {
             min_2.y = min_2.x ; 
-            min_2.x = dist[i + offset] ;  
+            min_2.x = dist[i + offset + threadIdx.x ] ;  
         }
         else{
-            if(dist[i + offset] < min_2.y)
+            if(dist[i + offset + threadIdx.x ] < min_2.y)
             {
-                min_2.y = dist[i + offset] ;  
+                min_2.y = dist[i + offset + threadIdx.x ] ;  
             }
         }
     }
