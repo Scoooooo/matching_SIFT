@@ -14,7 +14,7 @@ void test2_min(int n, int q) ;
 
 int main( int argc, char* argv[])
 {
-    test2_min(1124, 10000) ; 
+    test2_min(1124, 100000) ; 
 
     return 0;
 }
