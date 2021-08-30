@@ -1,0 +1,1 @@
+void make_rand_vector(int dim, float * vec);
