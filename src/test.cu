@@ -21,8 +21,8 @@ int main( int argc, char* argv[])
     
 // kernel tests 
 void test_dist(int q_n, int r_n){
-        //malloc host
-
+    //malloc host
+      
     des_t * q_points ; 
     des_t * r_points ; 
     
@@ -130,51 +130,21 @@ void test2_min(int size, int dim)
     cudaFree(dev_sorted) ; 
 }
 
-
-void sort_host(float * dist, int size, int dim, float2 * sorted)
+void make_rand_vector(int dim, float * vec)
 {
-    for (int i = 0; i < dim; i++)
-    {
-        float2 min_2 ;  
-        min_2.x = 0xffffff; 
-        min_2.y = 0xffffff; 
-        int offset = i * size ; 
-        for (int ii = 0; ii < size; ii++)
-        {
-            if(dist[ii + offset] < min_2.x)
-            {
-                min_2.y = min_2.x ; 
-                min_2.x = dist[ii + offset] ;  
-            }
-            else{
-                if(dist[ii + offset] < min_2.y)
-                {
-                min_2.y = dist[ii + offset] ;  
-                }
-            }
-        }
-        sorted[i] = min_2 ;  
-    }
-}
-
-void make_vector(des_t * vec){
     float * r_vec = (float *)vec ; 
-    for (size_t i = 0; i < 128; i++)
+    for (size_t i = 0; i < dim; i++)
     {
         r_vec[i] = static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
     }
+   
 }
 
-float lenght(des_t x, des_t y){
-    float * vec1 = (float * )x ; 
-    float * vec2 = (float * )y ;
-    float dist = 0 ;  
-    for (size_t i = 0; i < 128; i++)
+void make_rand_vec_array(int dim, int size, float * array)
+{ 
+    float * arr = (float *)array ;        
+    for (size_t i = 0; (i/dim) < size ;i+=  dim)
     {
-        float a = vec1[i] ; 
-        float b = vec2[i] ;  
-        float c = a - b ; 
-        dist += c * c ; 
+        make_rand_vector(dim, &arr[i]) ; 
     }
-    return dist ; 
 }

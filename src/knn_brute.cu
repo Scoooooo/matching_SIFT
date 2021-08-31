@@ -1,4 +1,11 @@
 #include "knn_brute.h"
+// gpu brute force 2nn 
+void device_brute(des_t * q_points, des_t * r_points, int q_points_size, int r_points_size, float2  * sorted)
+{
+    
+}
+
+
 //kernels
 //finds the sqr euclidan distance between two 128 vector arrays
 __global__ void sqrEuclidianDist(des_t * q_points, des_t * r_points, float * dist_array)   
@@ -181,6 +188,64 @@ __global__ void min_2_4(float *  dist, int size ,float2 * sorted)
             sorted[blockIdx.x ] = min_2 ; 
         }
     }
+}
+
+//host brute
+
+void host_brute(des_t * q_points, des_t * r_points, int q_points_size, int r_points_size, float2  * sorted)
+{
+    float lenght[q_points_size * r_points_size] ; 
+    for (size_t i = 0; i < q_points_size; i++)
+    {
+        for (size_t ii = 0; ii < r_points_size; ii++)
+        {
+            lenght[(i * r_points_size) + ii ] = host_lenght(q_points[i], r_points[ii]) ;  
+        }
+    }
+    host_sort(lenght, q_points_size*r_points_size, sorted) ; 
+}
+
+// given an array of arrays of lenghts it sorts the array and returns a sroted array 
+//containing the 2 shortests lenghts from each array 
+void host_sort(float * dist, int size, float2 * sorted)
+{
+    for (int i = 0; i < des_t_dim; i++)
+    {
+        float2 min_2 ;  
+        min_2.x = 0xffffff; 
+        min_2.y = 0xffffff; 
+        int offset = i * size ; 
+        for (int ii = 0; ii < size; ii++)
+        {
+            if(dist[ii + offset] < min_2.x)
+            {
+                min_2.y = min_2.x ; 
+                min_2.x = dist[ii + offset] ;  
+            }
+            else{
+                if(dist[ii + offset] < min_2.y)
+                {
+                min_2.y = dist[ii + offset] ;  
+                }
+            }
+        }
+        sorted[i] = min_2 ;  
+    }
+}
+
+// given 2 points find the euclidina lenght before taking the root
+float host_lenght(des_t x, des_t y){
+    float * vec1 = (float * )x ; 
+    float * vec2 = (float * )y ;
+    float dist = 0 ;  
+    for (size_t i = 0; i < des_t_dim; i++)
+    {
+        float a = vec1[i] ; 
+        float b = vec2[i] ;  
+        float c = a - b ; 
+        dist += c * c ; 
+    }
+    return dist ; 
 }
 
 
