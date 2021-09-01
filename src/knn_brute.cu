@@ -1,8 +1,28 @@
 #include "knn_brute.h"
+int des_t_dim = 128 ;
 // gpu brute force 2nn 
-void device_brute(des_t * q_points, des_t * r_points, int q_points_size, int r_points_size, float2  * sorted)
+// takes pointer with data on device as input, sorted output should also be on devcie
+void device_brute(des_t * q_points, des_t * r_points, int q_n, int r_n, float2  * sorted)
 {
+    // array of the distances between all q and r points 
+    float * dev_dist ; 
+
+    //cudaMallocManaged()
+    //array of dist from each q point to every r point 
+    cudaMalloc((void **) &dev_dist, q_n* r_n * sizeof(float)) ; 
+
+    dim3 block_size(32, 3, 1) ;   
+    dim3 grid_size(q_n, r_n, 1) ;
+
+    //fill in the dist array
+    sqrEuclidianDist<<<grid_size, block_size, 0>>>(q_points,r_points, dev_dist);
+    cudaDeviceSynchronize();
     
+    dim3 blockSize(32,3,1) ; 
+    dim3 gridSize(des_t_dim,1,1) ;
+    min_2_4<<<gridSize,blockSize>>>(dev_dist, r_n , sorted) ; 
+    cudaDeviceSynchronize();
+    cudaFree(dev_dist) ; 
 }
 
 
