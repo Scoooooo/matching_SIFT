@@ -8,18 +8,38 @@
 
 void make_rand_vector(int dim, float * vec);
 void make_rand_vec_array(int dim, int size, float * array) ; 
-void test() ; 
+void test() ;
+ 
 int main( int argc, char* argv[])
 {
     test() ; 
     return 0 ; 
 }
+
 void test()
 {
+    int dim =  128 ; 
+    int size_q = 10 ; 
+    int size_r = 10 ; 
     float * q_points ; 
     float * r_points ; 
-    cudaMallocHost(&q_points, 100*sizeof(float)) ; 
-    cudaMallocHost(&r_points, 100*sizeof(float)) ;
+
+    float2 * sorted ; 
+    //host 
+    cudaMallocHost(&q_points, dim*size_q*sizeof(float)) ; 
+    cudaMallocHost(&r_points, dim*size_r*sizeof(float)) ;
+    
+    //data 
+    make_rand_vec_array(128, size_q , q_points) ; 
+    make_rand_vec_array(128, size_r, r_points) ; 
+
+    //
+    for (size_t i = 0; i < dim*size_r; i++)
+    {
+        printf(" %f \n", r_points[i]) ; 
+    }
+
+
 
 }
 
