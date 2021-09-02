@@ -1,3 +1,6 @@
+
+#include <iostream>
+#include <string>
 #include "knn_brute.h"
 int des_t_dim = 128 ;
 // gpu brute force 2nn 
@@ -7,9 +10,8 @@ void device_brute(des_t * q_points, des_t * r_points, int q_n, int r_n, float2  
     // array of the distances between all q and r points 
     float * dev_dist ; 
 
-    //cudaMallocManaged()
     //array of dist from each q point to every r point 
-    cudaMalloc((void **) &dev_dist, q_n* r_n * sizeof(float)) ; 
+    cudaMallocManaged((void **) &dev_dist, q_n* r_n * sizeof(float)) ; 
 
     dim3 block_size(32, 3, 1) ;   
     dim3 grid_size(q_n, r_n, 1) ;
@@ -17,9 +19,14 @@ void device_brute(des_t * q_points, des_t * r_points, int q_n, int r_n, float2  
     //fill in the dist array
     sqrEuclidianDist<<<grid_size, block_size, 0>>>(q_points,r_points, dev_dist);
     cudaDeviceSynchronize();
-    
+    for (size_t i = 0; i < q_n * r_n; i++)
+    {
+        printf("len dev %f \n", dev_dist[i]) ; 
+    }
+     
     dim3 blockSize(32,3,1) ; 
-    dim3 gridSize(des_t_dim,1,1) ;
+    dim3 gridSize(q_n,1,1) ;
+
     min_2_4<<<gridSize,blockSize>>>(dev_dist, r_n , sorted) ; 
     cudaDeviceSynchronize();
     cudaFree(dev_dist) ; 
@@ -214,7 +221,9 @@ __global__ void min_2_4(float *  dist, int size ,float2 * sorted)
 
 void host_brute(des_t * q_points, des_t * r_points, int q_points_size, int r_points_size, float2  * sorted)
 {
-    float lenght[q_points_size * r_points_size] ; 
+    
+    float * lenght;
+    cudaMallocHost(&lenght, r_points_size * q_points_size * sizeof(float)) ; 
     for (size_t i = 0; i < q_points_size; i++)
     {
         for (size_t ii = 0; ii < r_points_size; ii++)
@@ -222,14 +231,15 @@ void host_brute(des_t * q_points, des_t * r_points, int q_points_size, int r_poi
             lenght[(i * r_points_size) + ii ] = host_lenght(q_points[i], r_points[ii]) ;  
         }
     }
-    host_sort(lenght, q_points_size*r_points_size, sorted) ; 
+    host_sort(lenght,r_points_size, q_points_size, sorted) ; 
+    cudaFree(lenght) ; 
 }
 
-// given an array of arrays of lenghts it sorts the array and returns a sroted array 
+//given an array of arrays of lenghts it sorts the array and returns a sroted array 
 //containing the 2 shortests lenghts from each array 
-void host_sort(float * dist, int size, float2 * sorted)
-{
-    for (int i = 0; i < des_t_dim; i++)
+void host_sort(float * dist, int size, int array_size, float2 * sorted)
+{   
+    for (int i = 0; i < array_size ; i++)
     {
         float2 min_2 ;  
         min_2.x = 0xffffff; 
