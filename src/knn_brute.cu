@@ -11,15 +11,15 @@ void device_brute(des_t * q_points, des_t * r_points, int q_n, int r_n, float2  
     float * dev_dist ; 
 
     //array of dist from each q point to every r point 
-    cudaMallocManaged((void **) &dev_dist, q_n* r_n * sizeof(float)) ; 
+    cudaMallocManaged((void **)&dev_dist, q_n* r_n * sizeof(float)) ; 
 
-    dim3 block_size(32, 3, 1) ;   
     dim3 grid_size(q_n, r_n, 1) ;
+    dim3 block_size(32, 1, 1) ;   
 
     //fill in the dist array
-    sqrEuclidianDist<<<grid_size, block_size, 0>>>(q_points,r_points, dev_dist);
+    sqrEuclidianDist<<<grid_size, block_size>>>(q_points,r_points, dev_dist);
     cudaDeviceSynchronize();
-    for (size_t i = 0; i < q_n * r_n; i++)
+    for (size_t i = 190; i < q_n * r_n; i++)
     {
         printf("len dev %f \n", dev_dist[i]) ; 
     }
@@ -54,7 +54,7 @@ __global__ void sqrEuclidianDist(des_t * q_points, des_t * r_points, float * dis
     dist += __shfl_down_sync( 0xffffffff, dist, 1 );   
     if(threadIdx.x == 0)
     {
-        dist_array[blockIdx.y * gridDim.x + blockIdx.x] = dist; 
+        dist_array[blockIdx.x * gridDim.y + blockIdx.y] = dist; 
     }
 }
 //find smallest vlaue in the warp 
@@ -223,7 +223,7 @@ void host_brute(des_t * q_points, des_t * r_points, int q_points_size, int r_poi
 {
     
     float * lenght;
-    cudaMallocHost(&lenght, r_points_size * q_points_size * sizeof(float)) ; 
+    cudaMallocHost((void **)&lenght, r_points_size * q_points_size * sizeof(float)) ; 
     for (size_t i = 0; i < q_points_size; i++)
     {
         for (size_t ii = 0; ii < r_points_size; ii++)
@@ -231,6 +231,11 @@ void host_brute(des_t * q_points, des_t * r_points, int q_points_size, int r_poi
             lenght[(i * r_points_size) + ii ] = host_lenght(q_points[i], r_points[ii]) ;  
         }
     }
+    for (size_t i = 190; i < q_points_size* r_points_size; i++)
+    {
+        printf("len %f \n", lenght[i]) ; 
+    }
+     
     host_sort(lenght,r_points_size, q_points_size, sorted) ; 
     cudaFree(lenght) ; 
 }
@@ -255,7 +260,7 @@ void host_sort(float * dist, int size, int array_size, float2 * sorted)
             else{
                 if(dist[ii + offset] < min_2.y)
                 {
-                min_2.y = dist[ii + offset] ;  
+                    min_2.y = dist[ii + offset] ;  
                 }
             }
         }
@@ -267,8 +272,8 @@ void host_sort(float * dist, int size, int array_size, float2 * sorted)
 float host_lenght(des_t x, des_t y){
     float * vec1 = (float * )x ; 
     float * vec2 = (float * )y ;
-    float dist = 0 ;  
-    for (size_t i = 0; i < des_t_dim; i++)
+    float dist =  0.0f  ;  
+    for (size_t i = 0; i < 128; i++)
     {
         float a = vec1[i] ; 
         float b = vec2[i] ;  

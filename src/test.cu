@@ -20,37 +20,32 @@ void test()
 {
     int dim =  128 ; 
     int size_q = 10 ; 
-    int size_r = 10 ; 
+    int size_r = 20 ; 
     des_t * q_points ; 
     des_t * r_points ; 
 
     float2 * sorted_host ; 
     float2 * sorted_dev ; 
     //host 
-    cudaMallocManaged(&q_points, size_q*sizeof(des_t)) ; 
-    cudaMallocManaged(&r_points, size_r*sizeof(des_t)) ;
+    cudaMallocManaged((void **)&q_points, size_q*sizeof(des_t)) ; 
+    cudaMallocManaged((void **)&r_points, size_r*sizeof(des_t)) ;
 
-    cudaMallocManaged(&sorted_host, size_r * sizeof(float2)) ; 
-    cudaMallocManaged(&sorted_dev, size_r * sizeof(float2)) ; 
+    cudaMallocManaged((void **)&sorted_host, size_r * sizeof(float2)) ; 
+    cudaMallocManaged((void **)&sorted_dev, size_r * sizeof(float2)) ; 
         
     //data 
     make_rand_vec_array(dim, size_q , q_points) ; 
     make_rand_vec_array(dim, size_r, r_points) ;
 
-    for (size_t i = 0; i < (size_q ); i++)
-    {
-        for (size_t ii = 0; ii < 130; ii++)
-        {
-            printf("%f \n",q_points[i][ii] )  ;
-        }
-    }
-    host_brute(q_points,r_points,size_q,size_r, sorted_host) ; 
     device_brute(q_points, r_points, size_q, size_r, sorted_dev) ; 
+    host_brute(q_points,r_points,size_q,size_r, sorted_host) ; 
 
-    for (size_t i = 0; i < size_r; i++)
-    {
-        printf("smallet %f second smallets %f \n", sorted_host[i].x, sorted_host[i].y) ; 
-        printf("smallet %f second smallets %f \n", sorted_dev[i].x, sorted_dev[i].y) ; 
+    for (size_t i = 0; i < size_q; i++)
+    {   
+        
+        printf("cpu 1  %f  cpu 2 %f \n", sorted_host[i].x, sorted_host[i].y) ; 
+        printf("gpu 1  %f  gpu 2 %f \n", sorted_dev[i].x, sorted_dev[i].y) ; 
+        printf("\n") ;
     }
     
 }
