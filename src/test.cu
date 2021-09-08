@@ -1,4 +1,5 @@
 #include "knn_brute.h"
+#include "lsh.h"
 
 #include <iostream>
 #include <string>
@@ -40,6 +41,7 @@ void test()
     device_brute(q_points, r_points, size_q, size_r, sorted_dev) ; 
     host_brute(q_points,r_points,size_q,size_r, sorted_host) ; 
 
+    host_lsh(q_points,r_points,size_q,size_r, sorted_dev, 32) ; 
     for (size_t i = 0; i < size_q; i++)
     {   
         
@@ -54,7 +56,6 @@ void make_rand_vector(int dim, des_t  &vec)
 {
     for (size_t i = 0; i < dim; i++)
     {
-
         vec[i] = static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
     }  
 }

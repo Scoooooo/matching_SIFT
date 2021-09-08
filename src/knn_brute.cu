@@ -32,7 +32,6 @@ void device_brute(des_t * q_points, des_t * r_points, int q_n, int r_n, float2  
     cudaFree(dev_dist) ; 
 }
 
-
 //kernels
 //finds the sqr euclidan distance between two 128 vector arrays
 __global__ void sqrEuclidianDist(des_t * q_points, des_t * r_points, float * dist_array)   

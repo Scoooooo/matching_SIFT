@@ -10,7 +10,11 @@ LIBS=-lm
 _DEPS = knn_brute.h 
 DEPS = $(patsubst %,$(IDIR)/%,$(_DEPS))
 
-_OBJ = test.o knn_brute.o 
+_DEPS = lsh.h 
+DEPS = $(patsubst %,$(IDIR)/%,$(_DEPS))
+
+
+_OBJ = test.o knn_brute.o lsh.o 
 OBJ = $(patsubst %,$(ODIR)/%,$(_OBJ))
 
 
