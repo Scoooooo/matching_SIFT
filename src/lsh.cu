@@ -2,34 +2,42 @@
 #include <string>
 #include "lsh.h"
 #include "knn_brute.h"
+#include <memory>
+#include <vector>
+#include<bits/stdc++.h>
+#include <map>
+using namespace std;
 
-void host_lsh(des_t * q_points, des_t * r_points, int n_q, int n_r, float2  * sorted, int nbits)
+void host_lsh(des_t * q_points, des_t * r_points, int n_q, int n_r, float4  * sorted, int nbits)
 {
-   
+    // number of codes for each point  
+    int l = 1 ;  
+
     des_t * rand_array ; 
 
     cudaMallocManaged((void **) &rand_array, sizeof(des_t) * nbits) ; 
 
-    // make rand vectors 
+    // make random vectors 
     for (size_t i = 0; i < nbits; i++)
     {
         make_vec(128, rand_array[i]) ;
     }   
 
     // make an array of ints with one int for each r_point
-    int * code ; 
+    unsigned int * code ; 
 
-    cudaMallocManaged((void **) &code, sizeof(int ) * n_r) ; 
+    cudaMallocManaged((void **) &code, sizeof(int ) * n_r * l) ; 
 
     cudaMemset(code, 0, sizeof(int) * n_r);
 
     // dot all vectors and add the bit to the coresponding int bit for the r points  
     for (size_t i = 0; i < n_r; i++)
     {
+        printf(" %i bucket = ", i) ; 
         for (size_t ii = 0; ii < nbits ; ii++)
         {
             float sum = dot(r_points[i],rand_array[ii]) ; 
-            if(sum >= 0)
+            if(sum <= 0)
             {
                 code[i] |= 1UL << ii;
             }
@@ -45,14 +53,38 @@ void host_lsh(des_t * q_points, des_t * r_points, int n_q, int n_r, float2  * so
         printf(" %u " , code[i]) ; 
         printf("\n \n") ; 
     }
+    
     // make buckets     
+    
+    map<int, set<int>> buckests ;
 
     for (size_t i = 0; i < n_r; i++)
     {
-        
+        // could also add to neighbouring buckets 
+        map<int, set<int>>::iterator it = buckests.find(code[i]) ;
+        if(it == buckests.end())
+        {
+            set<int> s = {1};  
+            buckests.insert(make_pair(code[i], s ));           
+        }
+        else
+        {
+            it->second.insert(i) ; 
+        } 
     }
     
-    // for each qury point find bucket  and nearby buckets add all then brute force 
+    for(const auto& elem : buckests)
+    {
+        std::cout << elem.first << " " <<  "\n";
+        for (auto it = elem.second.begin(); it !=
+                            elem.second.end(); ++it)
+        cout << ' ' << *it;    
+        cout << "\n" ; 
+    }
+
+    // for each q point dot with random vectors and find the correct bucket 
+    // preform a brute force search on values in the buckets 
+
 }
 
 void make_vec(int dim, des_t  &vec)

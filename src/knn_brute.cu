@@ -4,7 +4,7 @@
 #include "knn_brute.h"
 int des_t_dim = 128 ;
 // gpu brute force 2nn 
-// takes pointer with data on device as input, sorted output should also be on devcie
+// takes pointer with data on device as input, sorted output should also be on devcie or just manged 
 void device_brute(des_t * q_points, des_t * r_points, int q_n, int r_n, float2  * sorted)
 {
     // array of the distances between all q and r points 
@@ -218,7 +218,7 @@ __global__ void min_2_4(float *  dist, int size ,float2 * sorted)
 
 //host brute
 
-void host_brute(des_t * q_points, des_t * r_points, int q_points_size, int r_points_size, float2  * sorted)
+void host_brute(des_t * q_points, des_t * r_points, int q_points_size, int r_points_size, float4  * sorted)
 {
     
     float * lenght;
@@ -241,13 +241,15 @@ void host_brute(des_t * q_points, des_t * r_points, int q_points_size, int r_poi
 
 //given an array of arrays of lenghts it sorts the array and returns a sroted array 
 //containing the 2 shortests lenghts from each array 
-void host_sort(float * dist, int size, int array_size, float2 * sorted)
+void host_sort(float * dist, int size, int array_size, float4 * sorted)
 {   
     for (int i = 0; i < array_size ; i++)
     {
-        float2 min_2 ;  
-        min_2.x = 0xffffff; 
-        min_2.y = 0xffffff; 
+        float4 min_2 ;  
+        min_2.x = MAXFLOAT ; 
+        min_2.y = MAXFLOAT ;
+        min_2.z = MAXFLOAT ;  
+        min_2.w = MAXFLOAT ;  
         int offset = i * size ; 
         for (int ii = 0; ii < size; ii++)
         {
@@ -255,11 +257,15 @@ void host_sort(float * dist, int size, int array_size, float2 * sorted)
             {
                 min_2.y = min_2.x ; 
                 min_2.x = dist[ii + offset] ;  
+                
+                min_2.w = min_2.z ; 
+                min_2.z = ii ;  
+                
             }
             else{
                 if(dist[ii + offset] < min_2.y)
                 {
-                    min_2.y = dist[ii + offset] ;  
+                    min_2.w = ii ;  
                 }
             }
         }
