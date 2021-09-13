@@ -1,5 +1,6 @@
 #include <iostream>
 #include <string>
+#include "cublas_v2.h"
 #include "lsh.h"
 #include "knn_brute.h"
 #include <memory>
@@ -8,71 +9,74 @@
 #include <map>
 using namespace std;
 
-void host_lsh(des_t * q_points, des_t * r_points, int n_q, int n_r, float4  * sorted, int nbits)
+void host_lsh(des_t * q_points, des_t * r_points, int n_q, int n_r, float4  * sorted, int nbits, int l)
 {
-    // number of codes for each point  
-    int l = 1 ;  
 
     des_t * rand_array ; 
-
-    cudaMallocManaged((void **) &rand_array, sizeof(des_t) * nbits) ; 
+    cudaMallocManaged((void **) &rand_array, sizeof(des_t) * nbits * l) ; 
 
     // make random vectors 
-    for (size_t i = 0; i < nbits; i++)
+    for (size_t i = 0; i < nbits*l; i++)
     {
         make_vec(128, rand_array[i]) ;
     }   
 
     // make an array of ints with one int for each r_point
     unsigned int * code ; 
-
     cudaMallocManaged((void **) &code, sizeof(int ) * n_r * l) ; 
-
-    cudaMemset(code, 0, sizeof(int) * n_r);
+    cudaMemset(code, 0, sizeof(int) * n_r * l);
 
     // dot all vectors and add the bit to the coresponding int bit for the r points  
-    for (size_t i = 0; i < n_r; i++)
+
+    for (size_t i = 0; i < l; i++)
     {
-        printf(" %i bucket = ", i) ; 
-        for (size_t ii = 0; ii < nbits ; ii++)
+        for (size_t ii = 0; ii < n_r; ii++)
         {
-            float sum = dot(r_points[i],rand_array[ii]) ; 
-            if(sum <= 0)
+           // printf(" %i bucket = ", ii) ; 
+            for (size_t iii = 0; iii < nbits ; iii++)
             {
-                code[i] |= 1UL << ii;
+                float sum = dot(r_points[ii], rand_array[iii + i*nbits]) ; 
+                if(sum <= 0)
+                {
+                    code[ii + i*n_r] |= 1UL << iii;
+                }
+              //  if(sum >= 0)
+              //  {
+              //      printf("0") ; 
+              //  }
+              //  else
+              //  {
+              //      printf("1") ; 
+              //  }
             }
-            if(sum >= 0)
+          //  printf(" %u " , code[ii + i*n_r]) ; 
+          //  printf("\n \n") ; 
+        }
+    }
+     
+
+    // make buckets for r points      
+    map<int, set<int>> buckests ;
+
+    for (size_t i = 0; i < l; i++)
+    {
+        for (int ii = 0; ii < n_r ; ii++)
+        {
+            // could also add to neighbouring buckets 
+            auto it = buckests.find(code[ii + n_r *i]) ;
+            if(it == buckests.end())
             {
-                printf("0") ; 
+                set<int> s = {ii };  
+                buckests.insert(make_pair(code[ii + n_r * i], s ));           
             }
             else
             {
-                printf("1") ; 
-            }
+                it->second.insert(ii) ; 
+            } 
         }
-        printf(" %u " , code[i]) ; 
-        printf("\n \n") ; 
     }
-    
-    // make buckets     
-    
-    map<int, set<int>> buckests ;
 
-    for (size_t i = 0; i < n_r; i++)
-    {
-        // could also add to neighbouring buckets 
-        map<int, set<int>>::iterator it = buckests.find(code[i]) ;
-        if(it == buckests.end())
-        {
-            set<int> s = {1};  
-            buckests.insert(make_pair(code[i], s ));           
-        }
-        else
-        {
-            it->second.insert(i) ; 
-        } 
-    }
-    
+    // test   
     for(const auto& elem : buckests)
     {
         std::cout << elem.first << " " <<  "\n";
@@ -83,8 +87,42 @@ void host_lsh(des_t * q_points, des_t * r_points, int n_q, int n_r, float4  * so
     }
 
     // for each q point dot with random vectors and find the correct bucket 
-    // preform a brute force search on values in the buckets 
+    // add all elements for that bucket to the set 
+    // do this l times 
+    // preform a brute force search on values in the set 
+    unsigned int code_q ; 
+    set<int> combined_buckets  = {};
 
+    for (size_t i = 0; i < n_q; i++)
+    {
+        // fill the set 
+       for (size_t ii = 0; ii < l; ii++)
+       {
+            code_q = 0 ;
+           
+            for (size_t iii = 0; iii < nbits ; iii++)
+                {
+                float sum = dot(q_points[i], rand_array[iii + ii*nbits]) ; 
+                if(sum <= 0)
+                {
+                    code_q |= 1UL << iii;
+                }
+            }
+            auto it = buckests.find(code_q) ; 
+
+            if(it != buckests.end())
+            {
+                combined_buckets.insert( it->second.begin(),  it->second.end()) ; 
+            }
+        }
+        //burte force for the one q point 
+        cout << "combined bucket for " << i << " is " ; 
+        for (auto&  num: combined_buckets)
+        {
+            std::cout << num << ' ';
+        }
+        cout << "\n" ;
+    }
 }
 
 void make_vec(int dim, des_t  &vec)
@@ -107,4 +145,42 @@ float dot(des_t v1, des_t v2)
         sum += c ; 
     }
     return sum ; 
+}
+
+__global__ void random_vector(des_t * vec) 
+{
+    
+}
+
+__global__ void dot_make_codes()
+{
+
+}
+
+
+void device_lsh(des_t * q_points, des_t * r_points, int n_q, int n_r, float4  * sorted, int nbits, int l)
+{
+    // repeat l times !! will lead to comparing the same points multiple times ?
+
+    // make random vectors 
+ 
+    des_t * rand_array ; 
+    cudaMallocManaged((void **) &rand_array, sizeof(des_t) * nbits * l) ; 
+    
+    // dot vectors with r_points  
+    
+    // make hash codes fro doted res  
+    
+    
+    // make buckets 
+    // set ? map ? stuct ?  int array ? vector ?  
+
+    // use pointer vs moving data ? 
+
+
+    // dot q points 
+
+    // brute in bucket  
+
+
 }

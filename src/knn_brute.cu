@@ -1,3 +1,6 @@
+#include <nvToolsExt.h> 
+#include <sys/syscall.h>
+#include <unistd.h>
 
 #include <iostream>
 #include <string>
@@ -9,7 +12,6 @@ void device_brute(des_t * q_points, des_t * r_points, int q_n, int r_n, float2  
 {
     // array of the distances between all q and r points 
     float * dev_dist ; 
-
     //array of dist from each q point to every r point 
     cudaMallocManaged((void **)&dev_dist, q_n* r_n * sizeof(float)) ; 
 
@@ -19,10 +21,10 @@ void device_brute(des_t * q_points, des_t * r_points, int q_n, int r_n, float2  
     //fill in the dist array
     sqrEuclidianDist<<<grid_size, block_size>>>(q_points,r_points, dev_dist);
     cudaDeviceSynchronize();
-    for (size_t i = 190; i < q_n * r_n; i++)
-    {
-        printf("len dev %f \n", dev_dist[i]) ; 
-    }
+    //for (size_t i = 190; i < q_n * r_n; i++)
+    //{
+    //    printf("len dev %f \n", dev_dist[i]) ; 
+    //}
      
     dim3 blockSize(32,3,1) ; 
     dim3 gridSize(q_n,1,1) ;
@@ -230,11 +232,7 @@ void host_brute(des_t * q_points, des_t * r_points, int q_points_size, int r_poi
             lenght[(i * r_points_size) + ii ] = host_lenght(q_points[i], r_points[ii]) ;  
         }
     }
-    for (size_t i = 190; i < q_points_size* r_points_size; i++)
-    {
-        printf("len %f \n", lenght[i]) ; 
-    }
-     
+    
     host_sort(lenght,r_points_size, q_points_size, sorted) ; 
     cudaFree(lenght) ; 
 }

@@ -21,7 +21,7 @@ void test()
 {
     int dim =  128 ; 
     int size_q = 10 ; 
-    int size_r = 20 ; 
+    int size_r = 10; 
     des_t * q_points ; 
     des_t * r_points ; 
 
@@ -39,16 +39,16 @@ void test()
     make_rand_vec_array(dim, size_r, r_points) ;
 
     //device_brute(q_points, r_points, size_q, size_r, sorted_dev) ; 
-    //host_brute(q_points,r_points,size_q,size_r, sorted_host) ; 
+    host_brute(q_points,r_points,size_q,size_r, sorted_host) ; 
 
-    host_lsh(q_points,r_points,size_q,size_r, sorted_host, 10) ; 
-    //for (size_t i = 0; i < size_q; i++)
-    //{   
-    //    
-    //    printf("cpu 1  %f index %f  cpu 2 %f index %f \n", sorted_host[i].x, sorted_host[i].z, sorted_host[i].y,  sorted_host[i].w) ; 
-    //   // printf("gpu 1  %f  gpu 2 %f \n", sorted_dev[i].x, sorted_dev[i].y) ; 
-    //    printf("\n") ;
-    //}
+    host_lsh(q_points,r_points,size_q,size_r, sorted_host, 3, 4) ; 
+    for (size_t i = 0; i < size_q; i++)
+    {   
+        
+        printf("cpu 1  %f index %f  cpu 2 %f index %f \n", sorted_host[i].x, sorted_host[i].z, sorted_host[i].y,  sorted_host[i].w) ; 
+       // printf("gpu 1  %f  gpu 2 %f \n", sorted_dev[i].x, sorted_dev[i].y) ; 
+        printf("\n") ;
+    }
     
 }
 
