@@ -1,4 +1,6 @@
 #include <iostream>
+#include "curand_kernel.h"
+#include "curand_uniform.h"
 #include <string>
 #include "cublas_v2.h"
 #include "lsh.h"
@@ -146,11 +148,25 @@ float dot(des_t v1, des_t v2)
     }
     return sum ; 
 }
-
-__global__ void random_vector(des_t * vec) 
+// makes a random float 
+__device__ inline float random_float(uint64_t seed, int idx, int call_count) 
 {
-    
+    curandState s ; 
+    curand_init(seed + idx + call_count, 0, 0, &s);
+    return curand_uniform(&s);
 }
+
+//fills in a vector of random floats 
+__global__ void random_vector(uint64_t seed, des_t * vec) 
+{
+    int idx = blockIdx.x * blockDim.x  + threadIdx.x ;
+    float * vector = (float *) vec ; 
+    for (size_t i = 0; i < 4; i++)
+    {
+        vector[idx + (32*i)] =  random_float(seed, idx, i);
+    }
+}
+
 
 __global__ void dot_make_codes()
 {
@@ -162,16 +178,33 @@ void device_lsh(des_t * q_points, des_t * r_points, int n_q, int n_r, float4  * 
 {
     // repeat l times !! will lead to comparing the same points multiple times ?
 
+
+    // do we need random data ? 
     // make random vectors 
- 
+
     des_t * rand_array ; 
     cudaMallocManaged((void **) &rand_array, sizeof(des_t) * nbits * l) ; 
-    
+
+    // fill array
+    uint64_t seed = 132 ;  
+    dim3 grid_size(1, 1, 1) ;
+    dim3 block_size(32, 1, 1) ;   
+
+    //fill in the dist array
+    random_vector<<<grid_size, block_size>>>(seed, rand_array);
+ 
+    cudaDeviceSynchronize();
+
+    for (size_t i = 0; i < 128; i++)
+    {
+        printf("%i  %f \n  ", i, ((float *)rand_array )[i] ) ; 
+    }
+     
     // dot vectors with r_points  
-    
     // make hash codes fro doted res  
     
-    
+
+
     // make buckets 
     // set ? map ? stuct ?  int array ? vector ?  
 

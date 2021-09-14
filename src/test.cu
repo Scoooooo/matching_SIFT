@@ -1,6 +1,6 @@
 #include "knn_brute.h"
 #include "lsh.h"
-
+#include "cuda_profiler_api.h"
 #include <iostream>
 #include <string>
 #include <math.h>
@@ -38,17 +38,18 @@ void test()
     make_rand_vec_array(dim, size_q , q_points) ; 
     make_rand_vec_array(dim, size_r, r_points) ;
 
-    //device_brute(q_points, r_points, size_q, size_r, sorted_dev) ; 
-    host_brute(q_points,r_points,size_q,size_r, sorted_host) ; 
-
-    host_lsh(q_points,r_points,size_q,size_r, sorted_host, 3, 4) ; 
-    for (size_t i = 0; i < size_q; i++)
-    {   
-        
-        printf("cpu 1  %f index %f  cpu 2 %f index %f \n", sorted_host[i].x, sorted_host[i].z, sorted_host[i].y,  sorted_host[i].w) ; 
-       // printf("gpu 1  %f  gpu 2 %f \n", sorted_dev[i].x, sorted_dev[i].y) ; 
-        printf("\n") ;
-    }
+//   cudaProfilerStart();
+ //   device_brute(q_points, r_points, size_q, size_r, sorted_dev) ; 
+    //host_brute(q_points,r_points,size_q,size_r, sorted_host) ; 
+//    cudaProfilerStop() ; 
+    device_lsh(q_points,r_points,size_q,size_r, sorted_host, 3, 4 ) ; 
+   // for (size_t i = 0; i < size_q; i++)
+   // {   
+   //     
+   //     printf("cpu 1  %f index %f  cpu 2 %f index %f \n", sorted_host[i].x, sorted_host[i].z, sorted_host[i].y,  sorted_host[i].w) ; 
+   //     printf("gpu 1  %f  gpu 2 %f \n", sorted_dev[i].x, sorted_dev[i].y) ; 
+   //     printf("\n") ;
+   // }
     
 }
 
