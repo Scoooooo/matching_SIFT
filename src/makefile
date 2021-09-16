@@ -1,6 +1,9 @@
 IDIR =../include
-CC=nvcc
+CC=nvcc $(LINK) 
 CFLAGS=-I$(IDIR)
+
+LINK=-lcublas -lcurand
+
 
 ODIR=obj
 LDIR =../lib
@@ -13,10 +16,8 @@ DEPS = $(patsubst %,$(IDIR)/%,$(_DEPS))
 _DEPS = lsh.h 
 DEPS = $(patsubst %,$(IDIR)/%,$(_DEPS))
 
-
 _OBJ = test.o knn_brute.o lsh.o 
 OBJ = $(patsubst %,$(ODIR)/%,$(_OBJ))
-
 
 $(ODIR)/%.o: %.cu $(DEPS)
 	$(CC) -c -o $@ $< $(CFLAGS)

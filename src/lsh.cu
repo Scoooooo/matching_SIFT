@@ -1,22 +1,23 @@
 #include <iostream>
 #include "curand_kernel.h"
-#include "curand_uniform.h"
 #include <string>
 #include "cublas_v2.h"
 #include "lsh.h"
 #include "knn_brute.h"
 #include <memory>
 #include <vector>
+#include <algorithm> 
 #include<bits/stdc++.h>
 #include <map>
+#include <execution>
 using namespace std;
+ 
 
 void host_lsh(des_t * q_points, des_t * r_points, int n_q, int n_r, float4  * sorted, int nbits, int l)
 {
 
     des_t * rand_array ; 
     cudaMallocManaged((void **) &rand_array, sizeof(des_t) * nbits * l) ; 
-
     // make random vectors 
     for (size_t i = 0; i < nbits*l; i++)
     {
@@ -25,6 +26,15 @@ void host_lsh(des_t * q_points, des_t * r_points, int n_q, int n_r, float4  * so
 
     // make an array of ints with one int for each r_point
     unsigned int * code ; 
+    int *  index ;    
+    int * bucket_start ; 
+   
+    cudaMallocManaged((void **) &index, sizeof(int ) * n_r * l) ; 
+    cudaMemset(index, 0, sizeof(int) * n_r * l);
+ 
+    cudaMallocManaged((void **) &bucket_start, 2 << nbits ) ; 
+    cudaMemset(bucket_start, 0, sizeof(int) * (2 << nbits) );
+
     cudaMallocManaged((void **) &code, sizeof(int ) * n_r * l) ; 
     cudaMemset(code, 0, sizeof(int) * n_r * l);
 
@@ -42,6 +52,7 @@ void host_lsh(des_t * q_points, des_t * r_points, int n_q, int n_r, float4  * so
                 {
                     code[ii + i*n_r] |= 1UL << iii;
                 }
+                //              
               //  if(sum >= 0)
               //  {
               //      printf("0") ; 
@@ -56,27 +67,47 @@ void host_lsh(des_t * q_points, des_t * r_points, int n_q, int n_r, float4  * so
         }
     }
      
-
     // make buckets for r points      
+
+    // 
+    // 
+    //  
     map<int, set<int>> buckests ;
 
-    for (size_t i = 0; i < l; i++)
+
+    for (int i = 0; i < n_r; i++)
     {
-        for (int ii = 0; ii < n_r ; ii++)
-        {
-            // could also add to neighbouring buckets 
-            auto it = buckests.find(code[ii + n_r *i]) ;
-            if(it == buckests.end())
-            {
-                set<int> s = {ii };  
-                buckests.insert(make_pair(code[ii + n_r * i], s ));           
-            }
-            else
-            {
-                it->second.insert(ii) ; 
-            } 
-        }
+        index[i] = i ; 
     }
+    std::sort(std::execution::par, index+n_r, [&](const int& i, const int& j) -> bool { return (code[index[i]] < code [index[j]]); }) ;   
+
+    
+   // 
+    int n = 0 ;   
+    for (int i = 0; i < n_r; i++)
+    {
+        
+    }
+    
+//    for (size_t i = 0; i < l; i++)
+//    {
+//        for (int ii = 0; ii < n_r ; ii++)
+//        {
+//
+//
+//           // could also add to neighbouring buckets 
+//            auto it = buckests.find(code[ii + n_r *i]) ;
+//            if(it == buckests.end())
+//            {
+//                set<int> s = {ii };  
+//                buckests.insert(make_pair(code[ii + n_r * i], s ));           
+//            }
+//            else
+//            {
+//                it->second.insert(ii) ; 
+//            } 
+//        }
+//    }
 
     // test   
     for(const auto& elem : buckests)
@@ -148,6 +179,12 @@ float dot(des_t v1, des_t v2)
     }
     return sum ; 
 }
+
+
+
+
+
+
 // makes a random float 
 __device__ inline float random_float(uint64_t seed, int idx, int call_count) 
 {
@@ -167,26 +204,23 @@ __global__ void random_vector(uint64_t seed, des_t * vec)
     }
 }
 
-
-__global__ void dot_make_codes()
+inline void dot()
 {
-
+    
 }
 
 
-void device_lsh(des_t * q_points, des_t * r_points, int n_q, int n_r, float4  * sorted, int nbits, int l)
+void gpu_lsh(des_t * q_points, des_t * r_points, int n_q, int n_r, float4  * sorted, int nbits, int l)
 {
     // repeat l times !! will lead to comparing the same points multiple times ?
 
-
-    // do we need random data ? 
     // make random vectors 
 
     des_t * rand_array ; 
     cudaMallocManaged((void **) &rand_array, sizeof(des_t) * nbits * l) ; 
 
     // fill array
-    uint64_t seed = 132 ;  
+    uint64_t seed = 9753 ;  
     dim3 grid_size(1, 1, 1) ;
     dim3 block_size(32, 1, 1) ;   
 
@@ -195,18 +229,27 @@ void device_lsh(des_t * q_points, des_t * r_points, int n_q, int n_r, float4  * 
  
     cudaDeviceSynchronize();
 
-    for (size_t i = 0; i < 128; i++)
-    {
-        printf("%i  %f \n  ", i, ((float *)rand_array )[i] ) ; 
-    }
+//    for (size_t i = 0; i < 128; i++)
+//    {
+//        printf("%i  %f \n  ", i, ((float *)rand_array )[i] ) ; 
+//    }
      
-    // dot vectors with r_points  
-    // make hash codes fro doted res  
+    // dot vectors with r_points 
+//    cublasHandle_t handle;
+//    cublasCreate( &handle) ; 
     
+    // 
+
+    
+    //  
+    //
+    // make hash codes from doted result 
+
+
+
 
 
     // make buckets 
-    // set ? map ? stuct ?  int array ? vector ?  
 
     // use pointer vs moving data ? 
 
