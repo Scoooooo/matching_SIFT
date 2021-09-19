@@ -42,7 +42,7 @@ void test()
  //   device_brute(q_points, r_points, size_q, size_r, sorted_dev) ; 
     //host_brute(q_points,r_points,size_q,size_r, sorted_host) ; 
 //    cudaProfilerStop() ; 
-    host_lsh(q_points,r_points,size_q,size_r, sorted_host, 3, 4 ) ; 
+    host_lsh(q_points,r_points,size_q,size_r, sorted_host, 3, 5 ) ; 
    // for (size_t i = 0; i < size_q; i++)
    // {   
    //     

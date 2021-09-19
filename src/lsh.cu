@@ -11,7 +11,6 @@
 #include <map>
 #include <execution>
 using namespace std;
- 
 
 void host_lsh(des_t * q_points, des_t * r_points, int n_q, int n_r, float4  * sorted, int nbits, int l)
 {
@@ -23,139 +22,119 @@ void host_lsh(des_t * q_points, des_t * r_points, int n_q, int n_r, float4  * so
     {
         make_vec(128, rand_array[i]) ;
     }   
-
     // make an array of ints with one int for each r_point
-    unsigned int * code ; 
+    int * code ; 
     int *  index ;    
     int * bucket_start ; 
-   
+    // need a copy to sort using sort
+    int *  index_copy ;    
+    
     cudaMallocManaged((void **) &index, sizeof(int ) * n_r * l) ; 
     cudaMemset(index, 0, sizeof(int) * n_r * l);
  
+    cudaMallocManaged((void **) &index_copy, sizeof(int ) * n_r * l) ; 
+    cudaMemset(index_copy, 0, sizeof(int) * n_r * l);
+ 
     cudaMallocManaged((void **) &bucket_start, 2 << nbits ) ; 
-    cudaMemset(bucket_start, 0, sizeof(int) * (2 << nbits) );
 
+    for (int i = 0; i < (2 << nbits); i++)
+    {
+        bucket_start[i] = -1 ; 
+    }
+    
     cudaMallocManaged((void **) &code, sizeof(int ) * n_r * l) ; 
     cudaMemset(code, 0, sizeof(int) * n_r * l);
 
     // dot all vectors and add the bit to the coresponding int bit for the r points  
-
-    for (size_t i = 0; i < l; i++)
+    for (int i = 0; i < l; i++)
     {
-        for (size_t ii = 0; ii < n_r; ii++)
+        for (int ii = 0; ii < n_r; ii++)
         {
-           // printf(" %i bucket = ", ii) ; 
-            for (size_t iii = 0; iii < nbits ; iii++)
+           printf(" %i bucket = ", (ii + i * n_r)) ; 
+            for (int iii = 0; iii < nbits ; iii++)
             {
                 float sum = dot(r_points[ii], rand_array[iii + i*nbits]) ; 
                 if(sum <= 0)
                 {
                     code[ii + i*n_r] |= 1UL << iii;
+
                 }
-                //              
-              //  if(sum >= 0)
-              //  {
-              //      printf("0") ; 
-              //  }
-              //  else
-              //  {
-              //      printf("1") ; 
-              //  }
+               
             }
-          //  printf(" %u " , code[ii + i*n_r]) ; 
-          //  printf("\n \n") ; 
+           printf(" %i " , code[ii + i*n_r ]) ; 
+           printf("\n \n") ; 
         }
     }
      
     // make buckets for r points      
 
-    // 
-    // 
-    //  
-    map<int, set<int>> buckests ;
-
-
-    for (int i = 0; i < n_r; i++)
+    for (int i = 0; i < n_r* l ; i++)
     {
         index[i] = i ; 
+        index_copy[i] = i ; 
     }
-    std::sort(std::execution::par, index+n_r, [&](const int& i, const int& j) -> bool { return (code[index[i]] < code [index[j]]); }) ;   
+   
+    std::sort(index, index + n_r * l, [&](const int& i, const int& j) -> bool { return (code[index_copy[i]] < code[index_copy[j]]); }) ;   
+
+    //index 
+    // code[index[r number ]] -> bucket 
+    // 
+
+    // index[range (bucket start[bucket] ->  [while code [index in r:points]] == bucket)] -> index in r_points of elemtn in bucket
+    // r_points[index in r_points ] -> dest vec 
+   
+
+    //set bucket start 
+    for (int i = 0; i < n_r * l; i++)
+    {
+        if(bucket_start[code[index[i]]] == -1)
+        {
+            bucket_start[code[index[i]]] = i ;  
+        }
+    }
 
     
-   // 
-    int n = 0 ;   
-    for (int i = 0; i < n_r; i++)
-    {
-        
-    }
+
+
     
-//    for (size_t i = 0; i < l; i++)
-//    {
-//        for (int ii = 0; ii < n_r ; ii++)
-//        {
-//
-//
-//           // could also add to neighbouring buckets 
-//            auto it = buckests.find(code[ii + n_r *i]) ;
-//            if(it == buckests.end())
-//            {
-//                set<int> s = {ii };  
-//                buckests.insert(make_pair(code[ii + n_r * i], s ));           
-//            }
-//            else
-//            {
-//                it->second.insert(ii) ; 
-//            } 
-//        }
-//    }
-
-    // test   
-    for(const auto& elem : buckests)
-    {
-        std::cout << elem.first << " " <<  "\n";
-        for (auto it = elem.second.begin(); it !=
-                            elem.second.end(); ++it)
-        cout << ' ' << *it;    
-        cout << "\n" ; 
-    }
-
+    
     // for each q point dot with random vectors and find the correct bucket 
     // add all elements for that bucket to the set 
     // do this l times 
     // preform a brute force search on values in the set 
-    unsigned int code_q ; 
-    set<int> combined_buckets  = {};
-
-    for (size_t i = 0; i < n_q; i++)
-    {
-        // fill the set 
-       for (size_t ii = 0; ii < l; ii++)
-       {
-            code_q = 0 ;
-           
-            for (size_t iii = 0; iii < nbits ; iii++)
-                {
-                float sum = dot(q_points[i], rand_array[iii + ii*nbits]) ; 
-                if(sum <= 0)
-                {
-                    code_q |= 1UL << iii;
-                }
-            }
-            auto it = buckests.find(code_q) ; 
-
-            if(it != buckests.end())
-            {
-                combined_buckets.insert( it->second.begin(),  it->second.end()) ; 
-            }
-        }
-        //burte force for the one q point 
-        cout << "combined bucket for " << i << " is " ; 
-        for (auto&  num: combined_buckets)
-        {
-            std::cout << num << ' ';
-        }
-        cout << "\n" ;
-    }
+//    unsigned int code_q ; 
+//    set<int> combined_buckets  = {};
+//
+//    for (size_t i = 0; i < n_q; i++)
+//    {
+//        // fill the set 
+//       for (size_t ii = 0; ii < l; ii++)
+//       {
+//            code_q = 0 ;
+//           
+//            for (size_t iii = 0; iii < nbits ; iii++)
+//                {
+//                float sum = dot(q_points[i], rand_array[iii + ii*nbits]) ; 
+//                if(sum <= 0)
+//                {
+//                    code_q |= 1UL << iii;
+//                }
+//            }
+//            auto it = buckests.find(code_q) ; 
+//
+//            if(it != buckests.end())
+//            {
+//                combined_buckets.insert( it->second.begin(),  it->second.end()) ; 
+//            }
+//        }
+//        //burte force for the one q point 
+//        cout << "combined bucket for " << i << " is " ; 
+//        for (auto&  num: combined_buckets)
+//        {
+//            std::cout << num << ' ';
+//        }
+//        cout << "\n" ;
+//    }
 }
 
 void make_vec(int dim, des_t  &vec)
