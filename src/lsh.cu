@@ -6,236 +6,257 @@
 #include "knn_brute.h"
 #include <memory>
 #include <vector>
-#include <algorithm> 
-#include<bits/stdc++.h>
+#include <algorithm>
+#include <bits/stdc++.h>
 #include <map>
 #include <execution>
 using namespace std;
 
-void host_lsh(des_t * q_points, des_t * r_points, int n_q, int n_r, float4  * sorted, int nbits, int l)
+void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l)
 {
 
-    des_t * rand_array ; 
-    cudaMallocManaged((void **) &rand_array, sizeof(des_t) * nbits * l) ; 
-    // make random vectors 
-    for (size_t i = 0; i < nbits*l; i++)
+    des_t *rand_array;
+    cudaMallocManaged((void **)&rand_array, sizeof(des_t) * nbits * l);
+    // make random vectors
+    for (size_t i = 0; i < nbits * l; i++)
     {
-        make_vec(128, rand_array[i]) ;
-    }   
+        make_vec(128, rand_array[i]);
+    }
     // make an array of ints with one int for each r_point
-    int * code ; 
-    int *  index ;    
-    int * bucket_start ; 
+    int *code;
+    int *index;
+    int *bucket_start;
     // need a copy to sort using sort
-    int *  index_copy ;    
-    
-    cudaMallocManaged((void **) &index, sizeof(int ) * n_r * l) ; 
+    int *index_copy;
+
+    cudaMallocManaged((void **)&index, sizeof(int) * n_r * l);
     cudaMemset(index, 0, sizeof(int) * n_r * l);
- 
-    cudaMallocManaged((void **) &index_copy, sizeof(int ) * n_r * l) ; 
+
+    cudaMallocManaged((void **)&index_copy, sizeof(int) * n_r * l);
     cudaMemset(index_copy, 0, sizeof(int) * n_r * l);
- 
-    cudaMallocManaged((void **) &bucket_start, 2 << nbits ) ; 
+
+    cudaMallocManaged((void **)&bucket_start, 2 << nbits);
 
     for (int i = 0; i < (2 << nbits); i++)
     {
-        bucket_start[i] = -1 ; 
+        bucket_start[i] = -1;
     }
-    
-    cudaMallocManaged((void **) &code, sizeof(int ) * n_r * l) ; 
+
+    cudaMallocManaged((void **)&code, sizeof(int) * n_r * l);
     cudaMemset(code, 0, sizeof(int) * n_r * l);
 
-    // dot all vectors and add the bit to the coresponding int bit for the r points  
+    // dot all vectors and add the bit to the coresponding int bit for the r points
     for (int i = 0; i < l; i++)
     {
         for (int ii = 0; ii < n_r; ii++)
         {
-           printf(" %i bucket = ", (ii + i * n_r)) ; 
-            for (int iii = 0; iii < nbits ; iii++)
+            printf(" %i bucket = ", (ii + i * n_r));
+            for (int iii = 0; iii < nbits; iii++)
             {
-                float sum = dot(r_points[ii], rand_array[iii + i*nbits]) ; 
-                if(sum <= 0)
+                float sum = dot(r_points[ii], rand_array[iii + i * nbits]);
+                if (sum <= 0)
                 {
-                    code[ii + i*n_r] |= 1UL << iii;
-
+                    code[ii + i * n_r] |= 1UL << iii;
                 }
-               
             }
-           printf(" %i " , code[ii + i*n_r ]) ; 
-           printf("\n \n") ; 
+            printf(" %i ", code[ii + i * n_r]);
+            printf("\n \n");
         }
     }
-     
-    // make buckets for r points      
 
-    for (int i = 0; i < n_r* l ; i++)
+    // make buckets for r points
+
+    for (int i = 0; i < l; i++)
     {
-        index[i] = i ; 
-        index_copy[i] = i ; 
+        for (int ii = 0; ii < n_r; ii++)
+        {
+            index[ii + i*n_r] = ii;
+            index_copy[ii + i*n_r] = ii;    
+        }
     }
-   
-    std::sort(index, index + n_r * l, [&](const int& i, const int& j) -> bool { return (code[index_copy[i]] < code[index_copy[j]]); }) ;   
 
-    //index 
-    // code[index[r number ]] -> bucket 
-    // 
+    std::sort(index, index + n_r * l, [&](const int &i, const int &j) -> bool
+              { return (code[index_copy[i]] < code[index_copy[j]]); });
+   
+    //index
+    // code[index[r number ]] -> bucket
+    //
 
     // index[range (bucket start[bucket] ->  [while code [index in r:points]] == bucket)] -> index in r_points of elemtn in bucket
-    // r_points[index in r_points ] -> dest vec 
-   
+    // r_points[index in r_points ] -> dest vec
 
-    //set bucket start 
+    //set bucket start
     for (int i = 0; i < n_r * l; i++)
     {
-        if(bucket_start[code[index[i]]] == -1)
+        if (bucket_start[code[index[i]]] == -1)
         {
-            bucket_start[code[index[i]]] = i ;  
+            bucket_start[code[index[i]]] = i;
         }
     }
 
-    
+    int * code_q ; 
+    cudaMallocManaged((void **)&code_q, sizeof(int) * n_r * l);
+    cudaMemset(code_q, 0, sizeof(int) * n_r * l);
+    // dot all q points 
+    for (int i = 0; i < l; i++)
+    {
+        for (int ii = 0; ii < n_q; ii++)
+        {
+            for (int iii = 0; iii < nbits; iii++)
+            {
+                float sum = dot(q_points[ii], rand_array[iii + i * nbits]);
+                if (sum <= 0)
+                {
+                    code_q[ii + i * n_q] |= 1UL << iii;
+                }
+            }
+        }
+    }
+
+    int * buckets ;
+    cudaMallocManaged((void **)&buckets, sizeof(int) * n_q * n_r);
+    cudaMemset(buckets, 0, sizeof(int) * n_q * n_r);
+    // fill buckets todo !! 
+    for (int i = 0; i < l; i++)
+    {
+        for (int ii = 0; ii < n_q; ii++)
+        {
+            int bucket = code_q[ii + (i * n_q)] ; 
+            int start = bucket_start[bucket] ;     
+            int iii = start ;
+            while ((start != -1) && code[index[iii]] == bucket)
+            {
+                buckets[ii + (i * n_q)] ;  
+                iii ++ ; 
+            }
+        }
+    }
 
 
-    
-    
-    // for each q point dot with random vectors and find the correct bucket 
-    // add all elements for that bucket to the set 
-    // do this l times 
-    // preform a brute force search on values in the set 
-//    unsigned int code_q ; 
-//    set<int> combined_buckets  = {};
-//
-//    for (size_t i = 0; i < n_q; i++)
-//    {
-//        // fill the set 
-//       for (size_t ii = 0; ii < l; ii++)
-//       {
-//            code_q = 0 ;
-//           
-//            for (size_t iii = 0; iii < nbits ; iii++)
-//                {
-//                float sum = dot(q_points[i], rand_array[iii + ii*nbits]) ; 
-//                if(sum <= 0)
-//                {
-//                    code_q |= 1UL << iii;
-//                }
-//            }
-//            auto it = buckests.find(code_q) ; 
-//
-//            if(it != buckests.end())
-//            {
-//                combined_buckets.insert( it->second.begin(),  it->second.end()) ; 
-//            }
-//        }
-//        //burte force for the one q point 
-//        cout << "combined bucket for " << i << " is " ; 
-//        for (auto&  num: combined_buckets)
-//        {
-//            std::cout << num << ' ';
-//        }
-//        cout << "\n" ;
-//    }
+        
+    // brute for each q point in the right bucket 
+    for (int i = 0; i < l; i++)
+    {
+        for (int ii = 0; ii < n_q; ii++)
+        {
+            int bucket = code_q[ii + (i * n_q)] ; 
+            int start = bucket_start[bucket] ;     
+            int iii = start ;
+            while ((start != -1) && code[index[iii]] == bucket)
+            {
+                float dist = host_lenght(r_points[index[iii]], q_points[ii] ) ; 
+                if(i == 0)
+                {
+                    sorted[ii].w = MAXFLOAT ; 
+                    sorted[ii].x = MAXFLOAT ; 
+                    sorted[ii].y = MAXFLOAT ; 
+                    sorted[ii].z = MAXFLOAT ; 
+                }
+                if(dist < sorted[ii].x)
+                {
+                    sorted[ii].y = sorted[ii].x ; 
+                    sorted[ii].x = dist;  
+                
+                    sorted[ii].w= sorted[ii].z; 
+                    sorted[ii].z= index[iii];  
+                }
+                else{
+                    if(dist < sorted[ii].y)
+                    {
+                        sorted[ii].w = index[iii] ;  
+                    }
+                }
+                iii ++ ; 
+            }
+        }
+    }
 }
 
-void make_vec(int dim, des_t  &vec)
+
+void make_vec(int dim, des_t &vec)
 {
     for (size_t i = 0; i < dim; i++)
     {
-        vec[i] = static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
-    }  
+        vec[i] = static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
+    }
 }
 
 float dot(des_t v1, des_t v2)
-{   
+{
 
-    float sum  = 0.f; 
-    for (size_t i = 0; i < 128 ; i++)
+    float sum = 0.f;
+    for (size_t i = 0; i < 128; i++)
     {
-        float a = ((float *)v1)[i]; 
-        float b = ((float *)v2)[i]; 
-        float c = a - b ; 
-        sum += c ; 
+        float a = ((float *)v1)[i];
+        float b = ((float *)v2)[i];
+        float c = a - b;
+        sum += c;
     }
-    return sum ; 
+    return sum;
 }
 
-
-
-
-
-
-// makes a random float 
-__device__ inline float random_float(uint64_t seed, int idx, int call_count) 
+// makes a random float
+__device__ inline float random_float(uint64_t seed, int idx, int call_count)
 {
-    curandState s ; 
+    curandState s;
     curand_init(seed + idx + call_count, 0, 0, &s);
     return curand_uniform(&s);
 }
 
-//fills in a vector of random floats 
-__global__ void random_vector(uint64_t seed, des_t * vec) 
+//fills in a vector of random floats
+__global__ void random_vector(uint64_t seed, des_t *vec)
 {
-    int idx = blockIdx.x * blockDim.x  + threadIdx.x ;
-    float * vector = (float *) vec ; 
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    float *vector = (float *)vec;
     for (size_t i = 0; i < 4; i++)
     {
-        vector[idx + (32*i)] =  random_float(seed, idx, i);
+        vector[idx + (32 * i)] = random_float(seed, idx, i);
     }
 }
 
 inline void dot()
 {
-    
 }
 
-
-void gpu_lsh(des_t * q_points, des_t * r_points, int n_q, int n_r, float4  * sorted, int nbits, int l)
+void gpu_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l)
 {
     // repeat l times !! will lead to comparing the same points multiple times ?
 
-    // make random vectors 
+    // make random vectors
 
-    des_t * rand_array ; 
-    cudaMallocManaged((void **) &rand_array, sizeof(des_t) * nbits * l) ; 
+    des_t *rand_array;
+    cudaMallocManaged((void **)&rand_array, sizeof(des_t) * nbits * l);
 
     // fill array
-    uint64_t seed = 9753 ;  
-    dim3 grid_size(1, 1, 1) ;
-    dim3 block_size(32, 1, 1) ;   
+    uint64_t seed = 9753;
+    dim3 grid_size(1, 1, 1);
+    dim3 block_size(32, 1, 1);
 
     //fill in the dist array
     random_vector<<<grid_size, block_size>>>(seed, rand_array);
- 
+
     cudaDeviceSynchronize();
 
-//    for (size_t i = 0; i < 128; i++)
-//    {
-//        printf("%i  %f \n  ", i, ((float *)rand_array )[i] ) ; 
-//    }
-     
-    // dot vectors with r_points 
-//    cublasHandle_t handle;
-//    cublasCreate( &handle) ; 
-    
-    // 
+    //    for (size_t i = 0; i < 128; i++)
+    //    {
+    //        printf("%i  %f \n  ", i, ((float *)rand_array )[i] ) ;
+    //    }
 
-    
-    //  
+    // dot vectors with r_points
+    //    cublasHandle_t handle;
+    //    cublasCreate( &handle) ;
+
     //
-    // make hash codes from doted result 
 
+    //
+    //
+    // make hash codes from doted result
 
+    // make buckets
 
+    // use pointer vs moving data ?
 
+    // dot q points
 
-    // make buckets 
-
-    // use pointer vs moving data ? 
-
-
-    // dot q points 
-
-    // brute in bucket  
-
-
+    // brute in bucket
 }
