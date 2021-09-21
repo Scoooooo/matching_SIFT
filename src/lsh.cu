@@ -12,7 +12,7 @@
 #include <execution>
 using namespace std;
 
-void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l)
+void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l, int bit_dist = 1) 
 {
 
     des_t *rand_array;
@@ -126,14 +126,48 @@ void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
             int iii = start ;
             while ((start != -1) && code[index[iii]] == bucket)
             {
-                buckets[ii + (i * n_q)] ;  
+                buckets[ii * n_r + index[iii]] =  1 ; 
                 iii ++ ; 
             }
+            
+            int n = 0 ; 
+            // 
+            int counters[bit_dist] ; 
+
+            for (int q = 0; q < bit_dist; q++)
+            {
+                counters[q] = q ; 
+            }
+             
+            while (n < bit_dist)
+            {
+                int neighbour_bucket = bucket ; 
+
+                for (int nn = 0; nn < bit_dist ; nn++)
+                {
+                    neighbour_bucket ^= 1UL << counters[nn] ; 
+                }
+                // find buckets n +1 bits away     
+                nn[] ++ ; 
+            }
+            
+
+            // add from negbouring buckets up to n bits away // n can be given by input but is by defualt 1     
+            // is there any meaing to adding more than  
+
+            // make all buckets with a hamming distance of n 
+
+            // 0000 
+            // 1000 0100 0010 0001  
+            // 1100 1010 1001 
+            // 0110 0101 
+            // 0011
+        
+            // 1110 1101 1011 0111  
+
         }
     }
-
-
-        
+    
     // brute for each q point in the right bucket 
     for (int i = 0; i < l; i++)
     {
