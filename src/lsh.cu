@@ -12,7 +12,7 @@
 #include <execution>
 using namespace std;
 
-void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l, int bit_dist = 1) 
+void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l, int max_dist)  
 {
 
     des_t *rand_array;
@@ -130,28 +130,8 @@ void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
                 iii ++ ; 
             }
             
-            int n = 0 ; 
-            // 
-            int counters[bit_dist] ; 
-
-            for (int q = 0; q < bit_dist; q++)
-            {
-                counters[q] = q ; 
-            }
-             
-            while (n < bit_dist)
-            {
-                int neighbour_bucket = bucket ; 
-
-                for (int nn = 0; nn < bit_dist ; nn++)
-                {
-                    neighbour_bucket ^= 1UL << counters[nn] ; 
-                }
-                // find buckets n +1 bits away     
-                nn[] ++ ; 
-            }
             
-
+            
             // add from negbouring buckets up to n bits away // n can be given by input but is by defualt 1     
             // is there any meaing to adding more than  
 
@@ -161,13 +141,108 @@ void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
             // 1000 0100 0010 0001  
             // 1100 1010 1001 
             // 0110 0101 
-            // 0011
-        
-            // 1110 1101 1011 0111  
+            // 0011           
 
-        }
+
+            // 010
+            // 011 000 110 
+            // 001 100 
+           // for (int n = 0; n < max_dist; n++)
+           // {
+           //     int counters[n + 1] ; 
+
+           //     for (int q = 0; q < (n + 1); q++)
+           //     {
+           //         counters[q] = q ; 
+           //     }
+           //     
+           //     for (int nn = 0; nn < (n+1); n++)
+           //     {
+           //         for (int nnn = 0; nnn < (nbits - nn) ; nnn++)
+           //         {
+           //             for (int nnnn = 0; nnnn < ; nnnn++)
+           //             {
+           //                 /* code */
+           //             }
+           //             
+           //             
+           //         }
+           //         
+           //     }
+           //     
+
+           //     
+           //     
+           // }
+            
+            for (int n = 0; n < max_dist; n++)
+            {
+                int counters[n + 1] ; 
+
+                for (int q = 0; q < (n + 1); q++)
+                {
+                    counters[q] = q ; 
+                }
+
+                bool done = false ; 
+                while (!done)
+                {
+                    int neighbour_bucket = bucket ; 
+                    for (int nn = 0; nn < (n+1) ; nn++)
+                    {
+                        neighbour_bucket ^= 1UL << counters[nn] ; 
+                    }
+                    printf("bucket is %i neighbour is %i \n", bucket, neighbour_bucket) ; 
+                    // we have bucket 
+                    int start = bucket_start[neighbour_bucket] ;     
+                    int iii = start ;
+                    while ((start != -1) && code[index[iii]] == neighbour_bucket)
+                    {
+                        buckets[ii * n_r + index[iii]] =  1 ; 
+                        iii ++ ; 
+                    }
+                    bool flag = false ; 
+                    int nnn = n; 
+                    int bits = nbits ; 
+                    while (!flag)
+                    {
+
+                        if (((counters[nnn] + 1 ) >= bits ) && nnn == 0)
+                        {
+                           flag = true ; 
+                           done = true ;  
+                        }
+                        else if((counters[nnn] + 1) < bits)
+                        {
+                            counters[nnn] += 1 ; 
+                            flag = true ; 
+                        }
+                        // we are done with adding buckets  
+                        
+                        nnn -- ;  
+                        bits -- ; 
+                    }
+                }
+               
+            }
+            printf("\n"); 
+       }
     }
-    
+
+    for (int i = 0; i < n_q; i++)
+    {
+        sorted[i].w = MAXFLOAT ; 
+        sorted[i].x = MAXFLOAT ; 
+        sorted[i].y = MAXFLOAT ; 
+        sorted[i].z = MAXFLOAT ;
+        for (int ii = 0; ii < n_r; i++)
+        {
+            if()
+             
+        }
+        
+    }
+     
     // brute for each q point in the right bucket 
     for (int i = 0; i < l; i++)
     {
