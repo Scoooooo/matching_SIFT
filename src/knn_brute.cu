@@ -263,6 +263,7 @@ void host_sort(float * dist, int size, int array_size, float4 * sorted)
             else{
                 if(dist[ii + offset] < min_2.y)
                 {
+                    min_2.y = dist[ii + offset] ; 
                     min_2.w = ii ;  
                 }
             }
