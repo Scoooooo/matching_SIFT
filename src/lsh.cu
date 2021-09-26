@@ -9,10 +9,9 @@
 #include <algorithm>
 #include <bits/stdc++.h>
 #include <map>
-#include <execution>
 using namespace std;
 
-void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l, int max_dist)  
+void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l, int max_dist)
 {
 
     des_t *rand_array;
@@ -50,7 +49,7 @@ void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     {
         for (int ii = 0; ii < n_r; ii++)
         {
-//            printf(" %i bucket = ", (ii + i * n_r));
+            //            printf(" %i bucket = ", (ii + i * n_r));
             for (int iii = 0; iii < nbits; iii++)
             {
                 float sum = dot(r_points[ii], rand_array[iii + i * nbits]);
@@ -59,25 +58,25 @@ void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
                     code[ii + i * n_r] |= 1UL << iii;
                 }
             }
- //           printf(" %i ", code[ii + i * n_r]);
- //           printf("\n \n");
+            //           printf(" %i ", code[ii + i * n_r]);
+            //           printf("\n \n");
         }
     }
-    
+
     // make buckets for r points
 
     for (int i = 0; i < l; i++)
     {
         for (int ii = 0; ii < n_r; ii++)
         {
-            index[ii + i*n_r] = ii;
-            index_copy[ii + i*n_r] = ii;    
+            index[ii + i * n_r] = ii;
+            index_copy[ii + i * n_r] = ii;
         }
     }
 
     std::sort(index, index + n_r * l, [&](const int &i, const int &j) -> bool
               { return (code[index_copy[i]] < code[index_copy[j]]); });
-   
+
     //index
     // code[index[r number ]] -> bucket
     //
@@ -85,26 +84,36 @@ void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     // index[range (bucket start[bucket] ->  [while code [index in r:points]] == bucket)] -> index in r_points of elemtn in bucket
     // r_points[index in r_points ] -> dest vec
 
-    int * helper ; 
+    int *helper;
     cudaMallocManaged((void **)&helper, sizeof(int) * n_r * l);
 
     //set bucket start
+    dim3 block_size(32, 1, 1);
+    dim3 grid_size(((l * n_r) / 32) + 1, 1, 1);
+    set_helper<<<grid_size, block_size>>>(helper, code, index);
 
-    for (int i = 0; i < n_r * l; i++)
+    cudaDeviceSynchronize();
+    dim3 block(32, 1, 1);
+    dim3 grid(n_r * l, 1, 1);
+
+    min_helper<<<grid, block>>>(helper, bucket_start, l, n_r);
+    cudaDeviceSynchronize();
+ //   for (int i = 0; i < n_r * l; i++)
+ //   {
+ //       if (bucket_start[code[index[i]]] == -1)
+ //       {
+ //           bucket_start[code[index[i]]] = i;
+ //       }
+//   }
+    for (int i = 0; i < (2 << nbits); i++)
     {
-
-        helper[i] = code[index[i]] ;
-
-        if (bucket_start[code[index[i]]] == -1)
-        {
-            bucket_start[code[index[i]]] = i;
-        }
+        printf("%i sdasdas \n ",bucket_start[i]) ; 
     }
-
-    int * code_q ; 
+    
+    int *code_q;
     cudaMallocManaged((void **)&code_q, sizeof(int) * n_r * l);
     cudaMemset(code_q, 0, sizeof(int) * n_r * l);
-    // dot all q points 
+    // dot all q points
     for (int i = 0; i < l; i++)
     {
         for (int ii = 0; ii < n_q; ii++)
@@ -120,7 +129,7 @@ void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         }
     }
 
-    int * buckets ;
+    int *buckets;
     cudaMallocManaged((void **)&buckets, sizeof(int) * n_q * n_r);
     cudaMemset(buckets, 0, sizeof(int) * n_q * n_r);
     // fill buckets
@@ -128,182 +137,178 @@ void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     {
         for (int ii = 0; ii < n_q; ii++)
         {
-            int bucket = code_q[ii + (i * n_q)] ; 
-            int start = bucket_start[bucket] ;     
-            int iii = start ;
+            int bucket = code_q[ii + (i * n_q)];
+            int start = bucket_start[bucket];
+            int iii = start;
             while ((start != -1) && code[index[iii]] == bucket)
             {
-                buckets[ii * n_r + index[iii]] =  1 ; 
-                iii ++ ; 
+                buckets[ii * n_r + index[iii]] = 1;
+                iii++;
             }
-            
-            
-            
-            // add from negbouring buckets up to n bits away // n can be given by input but is by defualt 1     
-            // is there any meaing to adding more than  
 
-            // make all buckets with a hamming distance of n 
+            // add from negbouring buckets up to n bits away // n can be given by input but is by defualt 1
+            // is there any meaing to adding more than
 
-            // 0000 
-            // 1000 0100 0010 0001  
-            // 1100 1010 1001 
-            // 0110 0101 
-            // 0011           
+            // make all buckets with a hamming distance of n
 
+            // 0000
+            // 1000 0100 0010 0001
+            // 1100 1010 1001
+            // 0110 0101
+            // 0011
 
             // 010
-            // 011 000 110 
-            // 001 100 
-           // for (int n = 0; n < max_dist; n++)
-           // {
-           //     int counters[n + 1] ; 
+            // 011 000 110
+            // 001 100
+            // for (int n = 0; n < max_dist; n++)
+            // {
+            //     int counters[n + 1] ;
 
-           //     for (int q = 0; q < (n + 1); q++)
-           //     {
-           //         counters[q] = q ; 
-           //     }
-           //     
-           //     for (int nn = 0; nn < (n+1); n++)
-           //     {
-           //         for (int nnn = 0; nnn < (nbits - nn) ; nnn++)
-           //         {
-           //             for (int nnnn = 0; nnnn < ; nnnn++)
-           //             {
-           //                 /* code */
-           //             }
-           //             
-           //             
-           //         }
-           //         
-           //     }
-           //     
+            //     for (int q = 0; q < (n + 1); q++)
+            //     {
+            //         counters[q] = q ;
+            //     }
+            //
+            //     for (int nn = 0; nn < (n+1); n++)
+            //     {
+            //         for (int nnn = 0; nnn < (nbits - nn) ; nnn++)
+            //         {
+            //             for (int nnnn = 0; nnnn < ; nnnn++)
+            //             {
+            //                 /* code */
+            //             }
+            //
+            //
+            //         }
+            //
+            //     }
+            //
 
-           //     
-           //     
-           // }
-            
+            //
+            //
+            // }
+
             for (int n = 0; n < max_dist; n++)
             {
-                int counters[n + 1] ; 
+                int counters[n + 1];
 
                 for (int q = 0; q < (n + 1); q++)
                 {
-                    counters[q] = q ; 
+                    counters[q] = q;
                 }
 
-                bool done = false ; 
+                bool done = false;
                 while (!done)
                 {
-                    int neighbour_bucket = bucket ; 
-                    for (int nn = 0; nn < (n+1) ; nn++)
+                    int neighbour_bucket = bucket;
+                    for (int nn = 0; nn < (n + 1); nn++)
                     {
-                        neighbour_bucket ^= 1UL << counters[nn] ; 
+                        neighbour_bucket ^= 1UL << counters[nn];
                     }
-                   // printf("bucket is %i neighbour is %i \n", bucket, neighbour_bucket) ; 
-                    // we have bucket 
-                    int start = bucket_start[neighbour_bucket] ;     
-                    int iii = start ;
+                    // printf("bucket is %i neighbour is %i \n", bucket, neighbour_bucket) ;
+                    // we have bucket
+                    int start = bucket_start[neighbour_bucket];
+                    int iii = start;
                     while ((start != -1) && code[index[iii]] == neighbour_bucket)
                     {
-                        buckets[ii * n_r + index[iii]] =  1 ; 
-                        iii ++ ; 
+                        buckets[ii * n_r + index[iii]] = 1;
+                        iii++;
                     }
-                    bool flag = false ; 
-                    int nnn = n; 
-                    int bits = nbits ; 
+                    bool flag = false;
+                    int nnn = n;
+                    int bits = nbits;
                     while (!flag)
                     {
 
-                        if (((counters[nnn] + 1 ) >= bits ) && nnn == 0)
+                        if (((counters[nnn] + 1) >= bits) && nnn == 0)
                         {
-                           flag = true ; 
-                           done = true ;  
+                            flag = true;
+                            done = true;
                         }
-                        else if((counters[nnn] + 1) < bits)
+                        else if ((counters[nnn] + 1) < bits)
                         {
-                            counters[nnn] += 1 ; 
-                            flag = true ; 
+                            counters[nnn] += 1;
+                            flag = true;
                         }
-                        
-                        nnn -- ;  
-                        bits -- ; 
+
+                        nnn--;
+                        bits--;
                     }
                 }
-               
             }
-   //         printf("\n"); 
-       }
+            //         printf("\n");
+        }
     }
 
     for (int i = 0; i < n_q; i++)
     {
-        sorted[i].w = MAXFLOAT ; 
-        sorted[i].x = MAXFLOAT ; 
-        sorted[i].y = MAXFLOAT ; 
-        sorted[i].z = MAXFLOAT ;
+        sorted[i].w = MAXFLOAT;
+        sorted[i].x = MAXFLOAT;
+        sorted[i].y = MAXFLOAT;
+        sorted[i].z = MAXFLOAT;
         for (int ii = 0; ii < n_r; ii++)
         {
-            if(buckets[n_r * i + ii] == 1){
-                float dist = host_lenght(r_points[ii], q_points[i] ) ; 
+            if (buckets[n_r * i + ii] == 1)
+            {
+                float dist = host_lenght(r_points[ii], q_points[i]);
 
-                if(dist < sorted[i].x)
+                if (dist < sorted[i].x)
                 {
-                    sorted[i].y = sorted[i].x ; 
-                    sorted[i].x = dist;  
-                
-                    sorted[i].w= sorted[i].z; 
-                    sorted[i].z= ii;  
+                    sorted[i].y = sorted[i].x;
+                    sorted[i].x = dist;
+
+                    sorted[i].w = sorted[i].z;
+                    sorted[i].z = ii;
                 }
-                else{
-                    if(dist < sorted[i].y)
+                else
+                {
+                    if (dist < sorted[i].y)
                     {
-                        sorted[i].y = dist ; 
-                        sorted[i].w = ii ;  
+                        sorted[i].y = dist;
+                        sorted[i].w = ii;
                     }
                 }
             }
         }
-        
     }
-     
-    // brute for each q point in the right bucket 
-   // for (int i = 0; i < l; i++)
-   // {
-   //     for (int ii = 0; ii < n_q; ii++)
-   //     {
-   //         int bucket = code_q[ii + (i * n_q)] ; 
-   //         int start = bucket_start[bucket] ;     
-   //         int iii = start ;
-   //         while ((start != -1) && code[index[iii]] == bucket)
-   //         {
-   //             float dist = host_lenght(r_points[index[iii]], q_points[ii] ) ; 
-   //             if(i == 0)
-   //             {
-   //                 sorted[ii].w = MAXFLOAT ; 
-   //                 sorted[ii].x = MAXFLOAT ; 
-   //                 sorted[ii].y = MAXFLOAT ; 
-   //                 sorted[ii].z = MAXFLOAT ; 
-   //             }
-   //             if(dist < sorted[ii].x)
-   //             {
-   //                 sorted[ii].y = sorted[ii].x ; 
-   //                 sorted[ii].x = dist;  
-   //             
-   //                 sorted[ii].w= sorted[ii].z; 
-   //                 sorted[ii].z= index[iii];  
-   //             }
-   //             else{
-   //                 if(dist < sorted[ii].y)
-   //                 {
-   //                     sorted[ii].w = index[iii] ;  
-   //                 }
-   //             }
-   //             iii ++ ; 
-   //         }
-   //     }
-   // }
-}
 
+    // brute for each q point in the right bucket
+    // for (int i = 0; i < l; i++)
+    // {
+    //     for (int ii = 0; ii < n_q; ii++)
+    //     {
+    //         int bucket = code_q[ii + (i * n_q)] ;
+    //         int start = bucket_start[bucket] ;
+    //         int iii = start ;
+    //         while ((start != -1) && code[index[iii]] == bucket)
+    //         {
+    //             float dist = host_lenght(r_points[index[iii]], q_points[ii] ) ;
+    //             if(i == 0)
+    //             {
+    //                 sorted[ii].w = MAXFLOAT ;
+    //                 sorted[ii].x = MAXFLOAT ;
+    //                 sorted[ii].y = MAXFLOAT ;
+    //                 sorted[ii].z = MAXFLOAT ;
+    //             }
+    //             if(dist < sorted[ii].x)
+    //             {
+    //                 sorted[ii].y = sorted[ii].x ;
+    //                 sorted[ii].x = dist;
+    //
+    //                 sorted[ii].w= sorted[ii].z;
+    //                 sorted[ii].z= index[iii];
+    //             }
+    //             else{
+    //                 if(dist < sorted[ii].y)
+    //                 {
+    //                     sorted[ii].w = index[iii] ;
+    //                 }
+    //             }
+    //             iii ++ ;
+    //         }
+    //     }
+    // }
+}
 
 void make_vec(int dim, des_t &vec)
 {
@@ -327,52 +332,6 @@ float dot(des_t v1, des_t v2)
     return sum;
 }
 
-// makes a random float
-__device__ inline float random_float(uint64_t seed, int idx, int call_count)
-{
-    curandState s;
-    curand_init(seed + idx + call_count, 0, 0, &s);
-    return curand_uniform(&s);
-}
-
-__global__ void bucket_start(int * helper, int * start, int * code, int * index,int l, int n_r)
-{
-    helper[threadIdx.x] = code[index[threadIdx.x]]; 
-}
-
-
-__global__ void min_helper(int * helper, int * bucket_start, int l, int n_r)
- {
-    for(int i = threadIdx.x; i < (l *n_r); i+=32)
-    {
-        int v = (helper[i] == blockIdx.x) ; 
-        unsigned int mask = __ballot_sync(v, 0xfffffff) ;    
-        if(__popc(mask) == 0) continue ; 
-        int x = __ffs(mask) ;
-        if(threadIdx.x == 0)
-        {
-            int g = i + x ;  
-            bucket_start[helper[g]] = g ; 
-            break ; 
-        } 
-    }
- }
-//fills in a vector of random floats
-__global__ void random_vector(uint64_t seed, des_t *vec)
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    float *vector = (float *)vec;
-    for (size_t i = 0; i < 4; i++)
-    {
-        vector[idx + (32 * i)] = random_float(seed, idx, i);
-    }
-}
-
-inline void dot()
-{
-
-}
-
 void gpu_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l)
 {
     // repeat l times !! will lead to comparing the same points multiple times ?
@@ -389,12 +348,63 @@ void gpu_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted,
 
     //fill in the dist array
     random_vector<<<grid_size, block_size>>>(seed, rand_array);
+}
+
+// kernels for finding the start of each bucket in the index array
+// not sure if this is really faster than cpu todo TEST 
+// sets helper values
+__global__ void set_helper(int *helper, int *code, int *index)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    helper[idx] = code[index[idx]];
+}
+
+__global__ void min_helper(int *helper, int *bucket_start, int l, int n_r)
+{
+    for (int i = threadIdx.x; i < (l * n_r); i += 32)
+    {
+        
+        int v = (helper[i] == blockIdx.x);
+        unsigned int mask = __ballot_sync(0xffffffff, v);
+
+        if (__popc(mask) == 0)
+            continue;
+        int x = __ffs(mask);
+        if (threadIdx.x == 0)
+        {
+            int g = i + x - 1;
+            bucket_start[blockIdx.x] = g ; 
+            break;
+        }
+    }
+}
+
+// dot two arrays of vectors 
+void dot()
+{
+
+}
+
+ //           bucket_start[code[index[i]]] = i;
+// initialize array to a value
+__global__ void initialize(int *array, int value)
+{
+}
 
 
+// may have to make vectors more random ! hmm todo
+// makes a random float
 
-
-
-
-
-
+__device__ inline float random_float(uint64_t seed, int idx)
+{
+    curandState s;
+    curand_init(seed + idx, 0, 0, &s);
+    return curand_uniform(&s);
+}
+//fills a vector with random floats
+__global__ void random_vector(uint64_t seed, des_t *vec)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    float *vector = (float *)vec;
+    vector[idx] = random_float(seed, idx);
 }
