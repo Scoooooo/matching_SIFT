@@ -11,6 +11,8 @@
 
 using namespace std;
 
+
+// todo cublas scale data to have 0 as center instead of 0.5 , brute only 2nn  ? 
 void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l, int max_dist)
 {
 
