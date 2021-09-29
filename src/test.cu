@@ -18,8 +18,8 @@ int main(int argc, char *argv[])
 void test()
 {
     int dim = 128;
-    int size_q = 100;
-    int size_r = 100;
+    int size_q = 4000;
+    int size_r = 4000;
     des_t *q_points;
     des_t *r_points;
 
@@ -40,7 +40,7 @@ void test()
     //   device_brute(q_points, r_points, size_q, size_r, sorted_dev) ;
     host_brute(q_points,r_points,size_q,size_r, sorted_dev) ;
     //    cudaProfilerStop() ;
-    host_lsh(q_points, r_points, size_q, size_r, sorted_host, 6, 20, 2);
+    host_lsh(q_points, r_points, size_q, size_r, sorted_host, 10, 2, 2);
     int failed = 0 ; 
     for (size_t i = 0; i < size_q; i++)
     {
@@ -51,7 +51,7 @@ void test()
         {
             failed ++ ; 
         }
-         if(sorted_dev[i].w !=  sorted_host[i].w)
+        if(sorted_dev[i].w !=  sorted_host[i].w)
         {
             failed ++ ; 
         }
@@ -60,19 +60,4 @@ void test()
     printf("found %i out of %i nn \n",((size_q * 2)- failed),(size_q *2) ) ; 
 }
 
-void make_rand_vector(int dim, des_t &vec)
-{
-    for (size_t i = 0; i < dim; i++)
-    {
-        vec[i] = static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
-    }
-}
 
-void make_rand_vec_array(int dim, int size, des_t *array)
-{
-    des_t *arr = (des_t *)array;
-    for (size_t i = 0; i < size; i++)
-    {
-        make_rand_vector(dim, arr[i]);
-    }
-}

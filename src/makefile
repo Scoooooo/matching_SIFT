@@ -10,13 +10,16 @@ LDIR =../lib
 
 LIBS=-lm
 
+_DEPS = helper.h 
+DEPS = $(patsubst %,$(IDIR)/%,$(_DEPS))
+
 _DEPS = knn_brute.h 
 DEPS = $(patsubst %,$(IDIR)/%,$(_DEPS))
 
 _DEPS = lsh.h 
 DEPS = $(patsubst %,$(IDIR)/%,$(_DEPS))
 
-_OBJ = test.o knn_brute.o lsh.o 
+_OBJ = test.o knn_brute.o lsh.o helper.o 
 OBJ = $(patsubst %,$(ODIR)/%,$(_OBJ))
 
 $(ODIR)/%.o: %.cu $(DEPS)

@@ -21,15 +21,12 @@ void device_brute(des_t * q_points, des_t * r_points, int q_n, int r_n, float2  
     //fill in the dist array
     sqrEuclidianDist<<<grid_size, block_size>>>(q_points,r_points, dev_dist);
     cudaDeviceSynchronize();
-    //for (size_t i = 190; i < q_n * r_n; i++)
-    //{
-    //    printf("len dev %f \n", dev_dist[i]) ; 
-    //}
-     
+
+    // 
     dim3 blockSize(32,3,1) ; 
     dim3 gridSize(q_n,1,1) ;
 
-    min_2_4<<<gridSize,blockSize>>>(dev_dist, r_n , sorted) ; 
+    min_dist<<<gridSize,blockSize>>>(dev_dist, r_n , sorted) ; 
     cudaDeviceSynchronize();
     cudaFree(dev_dist) ; 
 }
@@ -58,7 +55,7 @@ __global__ void sqrEuclidianDist(des_t * q_points, des_t * r_points, float * dis
         dist_array[blockIdx.x * gridDim.y + blockIdx.y] = dist; 
     }
 }
-//find smallest vlaue in the warp 
+//find smallest vlaue in the warp and index  
 __device__ inline void best_in_warp(float2  &min_2)
 {    
     for (int i = 16; i > 0; i/= 2)
@@ -166,7 +163,7 @@ __global__ void min_2_3(float *  dist, int size ,float2 * sorted)
 }
  
 // x warps per dist 
-__global__ void min_2_4(float *  dist, int size ,float2 * sorted)
+__global__ void min_dist(float *  dist, int size ,float2 * sorted)
 {
     float2 min_2 ;  
     min_2.x = MAXFLOAT; 

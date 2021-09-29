@@ -8,7 +8,7 @@
 #include <vector>
 #include <algorithm>
 #include <bits/stdc++.h>
-#include <map>
+
 using namespace std;
 
 void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l, int max_dist)
@@ -44,6 +44,11 @@ void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     cudaMallocManaged((void **)&code, sizeof(int) * n_r * l);
     cudaMemset(code, 0, sizeof(int) * n_r * l);
 
+    float * test ;  
+    cudaMallocManaged((void **)&test, sizeof(float) * n_r * l);
+    cublasHandle_t handle;
+    cublasCreate_v2(&handle) ; 
+    
     // dot all vectors and add the bit to the coresponding int bit for the r points
     for (int i = 0; i < l; i++)
     {
@@ -53,7 +58,8 @@ void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
             for (int iii = 0; iii < nbits; iii++)
             {
                 float sum = dot(r_points[ii], rand_array[iii + i * nbits]);
-                if (sum <= 0)
+               // cublasSdot(handle, 128, r_points[ii], 1, rand_array[iii + i *nbits], 1, &test[ii + i *n_r]) ; 
+                if ( sum<= 0)
                 {
                     code[ii + i * n_r] |= 1UL << iii;
                 }
@@ -104,12 +110,8 @@ void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
  //       {
  //           bucket_start[code[index[i]]] = i;
  //       }
-//   }
-    for (int i = 0; i < (2 << nbits); i++)
-    {
-        printf("%i sdasdas \n ",bucket_start[i]) ; 
-    }
-    
+ //  }
+   
     int *code_q;
     cudaMallocManaged((void **)&code_q, sizeof(int) * n_r * l);
     cudaMemset(code_q, 0, sizeof(int) * n_r * l);
@@ -324,9 +326,9 @@ float dot(des_t v1, des_t v2)
     float sum = 0.f;
     for (size_t i = 0; i < 128; i++)
     {
-        float a = ((float *)v1)[i];
-        float b = ((float *)v2)[i];
-        float c = a - b;
+        float a = ((float *)v1)[i] - 0.5;
+        float b = ((float *)v2)[i] - 0.5;
+        float c = a * b;
         sum += c;
     }
     return sum;
@@ -379,18 +381,41 @@ __global__ void min_helper(int *helper, int *bucket_start, int l, int n_r)
     }
 }
 
-// dot two arrays of vectors 
-void dot()
-{
+// dot two arrays of vectors and set bit corresponding to the dot product  
 
+__global__ void dot_set_bit(float * rand, float * points, int * buckets, int size, int nbits, float * test)
+{
+   // cublasHandle_t handle;
+   // float res = 0.f ; 
+   // cublasCreate_v2(&handle) ; 
+   // cublasSdot(handle, size, (rand + (size * nbits * threadIdx.x)), 1, (points + (blockIdx.x * size)), 1, &res ) ; 
+   //   
+   // int bucket = 0 ;
+   // if(res >= 0)
+   // {    
+   //     bucket |= 1UL << threadIdx.y ; 
+   // } 
+   //  // l n_r nbits 
+   // bucket += __shfl_down_sync( 0xffffffff, bucket, 16 );
+   // bucket += __shfl_down_sync( 0xffffffff, bucket, 8 ); 
+   // bucket += __shfl_down_sync( 0xffffffff, bucket, 4 ); 
+   // bucket += __shfl_down_sync( 0xffffffff, bucket, 2 );
+   // bucket += __shfl_down_sync( 0xffffffff, bucket, 1 );   
+   // if(threadIdx.y == 0)
+   // {
+   //     //test[] = bucket ;  
+   // }
+   // //code[ii + i * n_r] |= 1UL << iii;
+   // // block = n_r, 1 1
+   // // thread = l, 32 , 1 
+    
 }
 
- //           bucket_start[code[index[i]]] = i;
 // initialize array to a value
 __global__ void initialize(int *array, int value)
 {
-}
 
+}
 
 // may have to make vectors more random ! hmm todo
 // makes a random float
