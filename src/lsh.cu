@@ -11,7 +11,6 @@
 
 using namespace std;
 
-
 // todo cublas scale data to have 0 as center instead of 0.5 , brute only 2nn  ? 
 void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l, int max_dist)
 {
@@ -26,10 +25,10 @@ void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     // make an array of ints with one int for each r_point
     int *code;
     int *index;
-    int *bucket_start;
-    // need a copy to sort using sort
+     // need a copy to sort using sort
     int *index_copy;
-
+    int *bucket_start;
+    
     cudaMallocManaged((void **)&index, sizeof(int) * n_r * l);
     cudaMemset(index, 0, sizeof(int) * n_r * l);
 
@@ -104,15 +103,15 @@ void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     dim3 block(32, 1, 1);
     dim3 grid(n_r * l, 1, 1);
 
-    min_helper<<<grid, block>>>(helper, bucket_start, l, n_r);
+   set_bucket_start<<<grid, block>>>(helper, bucket_start, l, n_r);
     cudaDeviceSynchronize();
- //   for (int i = 0; i < n_r * l; i++)
- //   {
- //       if (bucket_start[code[index[i]]] == -1)
- //       {
- //           bucket_start[code[index[i]]] = i;
- //       }
- //  }
+    for (int i = 0; i < n_r * l; i++)
+    {
+        if (bucket_start[code[index[i]]] == -1)
+        {
+            bucket_start[code[index[i]]] = i;
+        }
+   }
    
     int *code_q;
     cudaMallocManaged((void **)&code_q, sizeof(int) * n_r * l);
@@ -346,12 +345,29 @@ void gpu_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted,
     cudaMallocManaged((void **)&rand_array, sizeof(des_t) * nbits * l);
 
     // fill array
-    uint64_t seed = 9753;
+    uint64_t seed = 123451;
     dim3 grid_size(1, 1, 1);
     dim3 block_size(32, 1, 1);
 
-    //fill in the dist array
+    //fill in the rand array
     random_vector<<<grid_size, block_size>>>(seed, rand_array);
+    
+    // make an array of ints with one int for each r_point
+    int *code;
+    int *index;
+     // need a copy to sort using sort
+    int *index_copy;
+    int *bucket_start;
+    
+    cudaMallocManaged((void **)&index, sizeof(int) * n_r * l);
+    cudaMemset(index, 0, sizeof(int) * n_r * l);
+
+    cudaMallocManaged((void **)&index_copy, sizeof(int) * n_r * l);
+    cudaMemset(index_copy, 0, sizeof(int) * n_r * l);
+
+    cudaMallocManaged((void **)&bucket_start, 2 << nbits);
+
+
 }
 
 // kernels for finding the start of each bucket in the index array
@@ -363,7 +379,7 @@ __global__ void set_helper(int *helper, int *code, int *index)
     helper[idx] = code[index[idx]];
 }
 
-__global__ void min_helper(int *helper, int *bucket_start, int l, int n_r)
+__global__ void set_bucket_start(int *helper, int *bucket_start, int l, int n_r)
 {
     for (int i = threadIdx.x; i < (l * n_r); i += 32)
     {
@@ -410,13 +426,13 @@ __global__ void dot_set_bit(float * rand, float * points, int * buckets, int siz
    // //code[ii + i * n_r] |= 1UL << iii;
    // // block = n_r, 1 1
    // // thread = l, 32 , 1 
-    
 }
 
 // initialize array to a value
 __global__ void initialize(int *array, int value)
 {
-
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    array[idx] =  value ;
 }
 
 // may have to make vectors more random ! hmm todo
