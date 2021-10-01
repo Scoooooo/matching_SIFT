@@ -10,17 +10,17 @@
 #include <bits/stdc++.h>
 
 using namespace std;
-
+//to do make rand array[l*nbits] 128 long and multyply with q_points 
 // todo cublas scale data to have 0 as center instead of 0.5 , brute only 2nn  ? 
 void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l, int max_dist)
 {
 
-    des_t *rand_array;
+    float *rand_array;
     cudaMallocManaged((void **)&rand_array, sizeof(des_t) * nbits * l);
     // make random vectors
-    for (size_t i = 0; i < nbits * l; i++)
+    for (size_t i = 0; i < 128; i++)
     {
-        make_vec(128, rand_array[i]);
+        make_vec(l * nbits, (rand_array[(l * nbits) * i]));
     }
     // make an array of ints with one int for each r_point
     int *code;
@@ -103,15 +103,15 @@ void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     dim3 block(32, 1, 1);
     dim3 grid(n_r * l, 1, 1);
 
-   set_bucket_start<<<grid, block>>>(helper, bucket_start, l, n_r);
-    cudaDeviceSynchronize();
+    //  set_bucket_start<<<grid, block>>>(helper, bucket_start, l, n_r);
+    //  cudaDeviceSynchronize();
     for (int i = 0; i < n_r * l; i++)
     {
         if (bucket_start[code[index[i]]] == -1)
         {
             bucket_start[code[index[i]]] = i;
         }
-   }
+    }
    
     int *code_q;
     cudaMallocManaged((void **)&code_q, sizeof(int) * n_r * l);
@@ -163,34 +163,6 @@ void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
             // 010
             // 011 000 110
             // 001 100
-            // for (int n = 0; n < max_dist; n++)
-            // {
-            //     int counters[n + 1] ;
-
-            //     for (int q = 0; q < (n + 1); q++)
-            //     {
-            //         counters[q] = q ;
-            //     }
-            //
-            //     for (int nn = 0; nn < (n+1); n++)
-            //     {
-            //         for (int nnn = 0; nnn < (nbits - nn) ; nnn++)
-            //         {
-            //             for (int nnnn = 0; nnnn < ; nnnn++)
-            //             {
-            //                 /* code */
-            //             }
-            //
-            //
-            //         }
-            //
-            //     }
-            //
-
-            //
-            //
-            // }
-
             for (int n = 0; n < max_dist; n++)
             {
                 int counters[n + 1];
@@ -403,29 +375,28 @@ __global__ void set_bucket_start(int *helper, int *bucket_start, int l, int n_r)
 
 __global__ void dot_set_bit(float * rand, float * points, int * buckets, int size, int nbits, float * test)
 {
-   // cublasHandle_t handle;
-   // float res = 0.f ; 
-   // cublasCreate_v2(&handle) ; 
-   // cublasSdot(handle, size, (rand + (size * nbits * threadIdx.x)), 1, (points + (blockIdx.x * size)), 1, &res ) ; 
-   //   
-   // int bucket = 0 ;
-   // if(res >= 0)
-   // {    
-   //     bucket |= 1UL << threadIdx.y ; 
-   // } 
-   //  // l n_r nbits 
-   // bucket += __shfl_down_sync( 0xffffffff, bucket, 16 );
-   // bucket += __shfl_down_sync( 0xffffffff, bucket, 8 ); 
-   // bucket += __shfl_down_sync( 0xffffffff, bucket, 4 ); 
-   // bucket += __shfl_down_sync( 0xffffffff, bucket, 2 );
-   // bucket += __shfl_down_sync( 0xffffffff, bucket, 1 );   
-   // if(threadIdx.y == 0)
-   // {
-   //     //test[] = bucket ;  
-   // }
-   // //code[ii + i * n_r] |= 1UL << iii;
-   // // block = n_r, 1 1
-   // // thread = l, 32 , 1 
+    float res = 0.f ; 
+     
+    int bucket = 0 ;
+
+    if(res >= 0)
+    {    
+        bucket |= 1UL << threadIdx.y ; 
+    } 
+
+    // l n_r nbits 
+    bucket += __shfl_down_sync( 0xffffffff, bucket, 16 );
+    bucket += __shfl_down_sync( 0xffffffff, bucket, 8 ); 
+    bucket += __shfl_down_sync( 0xffffffff, bucket, 4 ); 
+    bucket += __shfl_down_sync( 0xffffffff, bucket, 2 );
+    bucket += __shfl_down_sync( 0xffffffff, bucket, 1 );   
+    if(threadIdx.y == 0)
+    {
+        //test[] = bucket ;  
+    }
+    //code[ii + i * n_r] |= 1UL << iii;
+    // block = n_r, 1 1
+    // thread = l, 32 , 1 
 }
 
 // initialize array to a value

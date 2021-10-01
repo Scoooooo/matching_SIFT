@@ -5,6 +5,7 @@
 #include <string>
 #include <math.h>
 #include <sys/time.h>
+#include "helper.h"
 
 void make_rand_vector(int dim, des_t &vec);
 void make_rand_vec_array(int dim, int size, des_t *array);
@@ -38,9 +39,13 @@ void test()
 
     //   cudaProfilerStart();
     //   device_brute(q_points, r_points, size_q, size_r, sorted_dev) ;
+    double t = start_timer() ; 
     host_brute(q_points,r_points,size_q,size_r, sorted_dev) ;
+    print_time(t, "host brute") ; 
     //    cudaProfilerStop() ;
-    host_lsh(q_points, r_points, size_q, size_r, sorted_host, 10, 2, 2);
+    t = start_timer() ; 
+    host_lsh(q_points, r_points, size_q, size_r, sorted_host, 4, 4, 1);
+    print_time(t, "host lsh");
     int failed = 0 ; 
     for (size_t i = 0; i < size_q; i++)
     {

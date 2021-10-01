@@ -145,7 +145,6 @@ __global__ void min_2_3(float *  dist, int size ,float2 * sorted)
     // find best in all the 32 warps  
     __shared__ float2 best[32] ; 
     if(threadIdx.x == 0)
-
     {
         best[threadIdx.y] = min_2 ;
     }
