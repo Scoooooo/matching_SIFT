@@ -19,8 +19,8 @@ int main(int argc, char *argv[])
 void test()
 {
     int dim = 128;
-    int size_q = 4000;
-    int size_r = 4000;
+    int size_q = 1253;
+    int size_r = 6050;
     des_t *q_points;
     des_t *r_points;
 
@@ -38,13 +38,13 @@ void test()
     make_rand_vec_array(dim, size_r, r_points);
 
     //   cudaProfilerStart();
-    //   device_brute(q_points, r_points, size_q, size_r, sorted_dev) ;
     double t = start_timer() ; 
     host_brute(q_points,r_points,size_q,size_r, sorted_dev) ;
     print_time(t, "host brute") ; 
     //    cudaProfilerStop() ;
     t = start_timer() ; 
-    host_lsh(q_points, r_points, size_q, size_r, sorted_host, 4, 4, 1);
+    //gpu_lsh(q_points, r_points, size_q, size_r, sorted_host, 4, 4, 2);
+    device_brute(q_points,r_points,size_q,size_r, sorted_host) ;
     print_time(t, "host lsh");
     int failed = 0 ; 
     for (size_t i = 0; i < size_q; i++)
@@ -55,10 +55,13 @@ void test()
         if(sorted_dev[i].z !=  sorted_host[i].z)
         {
             failed ++ ; 
+            printf("z is bad \n") ; 
         }
         if(sorted_dev[i].w !=  sorted_host[i].w)
         {
             failed ++ ; 
+            printf("w is not good \n"); 
+          
         }
         
     }

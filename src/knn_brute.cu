@@ -8,7 +8,7 @@
 int des_t_dim = 128 ;
 // gpu brute force 2nn 
 // takes pointer with data on device as input, sorted output should also be on devcie or just manged 
-void device_brute(des_t * q_points, des_t * r_points, int q_n, int r_n, float2  * sorted)
+void device_brute(des_t * q_points, des_t * r_points, int q_n, int r_n, float4  * sorted)
 {
     // array of the distances between all q and r points 
     float * dev_dist ; 
@@ -23,7 +23,7 @@ void device_brute(des_t * q_points, des_t * r_points, int q_n, int r_n, float2  
     cudaDeviceSynchronize();
 
     // 
-    dim3 blockSize(32,3,1) ; 
+    dim3 blockSize(32,10,1) ; 
     dim3 gridSize(q_n,1,1) ;
 
     min_dist<<<gridSize,blockSize>>>(dev_dist, r_n , sorted) ; 
@@ -56,146 +56,156 @@ __global__ void sqrEuclidianDist(des_t * q_points, des_t * r_points, float * dis
     }
 }
 //find smallest vlaue in the warp and index  
-__device__ inline void best_in_warp(float2  &min_2)
+__device__ inline void best_in_warp(float4  &min_2)
 {    
     for (int i = 16; i > 0; i/= 2)
     {          
-        float temp = __shfl_down_sync( 0xffffffff, min_2.x, i );
-        float temp2 = __shfl_down_sync( 0xffffffff, min_2.y, i );
-        if(temp < min_2.x)
+        float x_dist = __shfl_down_sync( 0xffffffff, min_2.x, i );
+        float y_dist = __shfl_down_sync( 0xffffffff, min_2.y, i );
+        float w_value = __shfl_down_sync( 0xffffffff, min_2.w, i );
+        float z_value = __shfl_down_sync( 0xffffffff, min_2.z, i );
+        if(x_dist < min_2.x)
         {
-          min_2.y = min_2.x ;  
-          min_2.x = temp ;
+            min_2.y = min_2.x ; 
+            min_2.x = x_dist ;  
+                
+            min_2.w = min_2.z ; 
+            min_2.z = z_value;  
         }
         else{
-            if(temp < min_2.y)
+            if(x_dist < min_2.y)
             {
-                min_2.y = temp ;  
+                min_2.y = x_dist ; 
+                min_2.w = z_value;  
+                continue ; 
             }
-        }
-        if(temp2< min_2.y)
+        } 
+        if(y_dist < min_2.y)
         {
-            min_2.y = temp2 ;  
+                min_2.y = y_dist ; 
+                min_2.w = w_value;  
         }
     }
 }
 
 
 // 32 threads for each dist_array using shlf  
-__global__ void min_2_2(float *  dist, int size ,float2 * sorted)
-{
-    float2 min_2 ;  
-    min_2.x = MAXFLOAT; 
-    min_2.y = MAXFLOAT; 
-   
-    int offset = (threadIdx.y + blockIdx.x * 32) * size ;
-
-    for (int i = 0; (i + threadIdx.x) < size; i += 32)
-    {
-        if(dist[i + offset + threadIdx.x] < min_2.x)
-        {
-            min_2.y = min_2.x ; 
-            min_2.x = dist[i + offset + threadIdx.x] ;  
-        }
-        else{
-            if(dist[i + offset + threadIdx.x] < min_2.y)
-            {
-                min_2.y = dist[i + offset + threadIdx.x] ;  
-            }
-        }
-    }
-
-    best_in_warp(min_2) ;
-
-    if(threadIdx.x == 0)
-    { 
-        sorted[threadIdx.y + blockIdx.x * 32] = min_2 ; 
-    }
-}
+//__global__ void min_2_2(float *  dist, int size ,float2 * sorted)
+//{
+//    float2 min_2 ;  
+//    min_2.x = MAXFLOAT; 
+//    min_2.y = MAXFLOAT; 
+//   
+//    int offset = (threadIdx.y + blockIdx.x * 32) * size ;
+//
+//    for (int i = 0; (i + threadIdx.x) < size; i += 32)
+//    {
+//        if(dist[i + offset + threadIdx.x] < min_2.x)
+//        {
+//            min_2.y = min_2.x ; 
+//            min_2.x = dist[i + offset + threadIdx.x] ;  
+//        }
+//        else{
+//            if(dist[i + offset + threadIdx.x] < min_2.y)
+//            {
+//                min_2.y = dist[i + offset + threadIdx.x] ;  
+//            }
+//        }
+//    }
+//
+//    best_in_warp(min_2) ;
+//
+//    if(threadIdx.x == 0)
+//    { 
+//        sorted[threadIdx.y + blockIdx.x * 32] = min_2 ; 
+//    }
+//}
 
 // reading float vs float2 3 4 ?  
 // 32 wraps per dist  
-__global__ void min_2_3(float *  dist, int size ,float2 * sorted)
+//__global__ void min_2_3(float *  dist, int size ,float2 * sorted)
+//{
+//    float2 min_2 ;  
+//    min_2.x = MAXFLOAT; 
+//    min_2.y = MAXFLOAT; 
+//   
+//    int offset = (blockIdx.x) * size + (threadIdx.y * 32) ; 
+//    if(threadIdx.x == 0){
+//        //printf("offset %d  \n", offset) ; 
+//    
+//    }
+//    for (int i = 0; (i + threadIdx.x) < size ; i+= 1024)
+//    {
+//        if(dist[i + offset + threadIdx.x] < min_2.x)
+//        {
+//            min_2.y = min_2.x ; 
+//            min_2.x = dist[i + offset + threadIdx.x] ;  
+//        }
+//        else{
+//            if(dist[i + offset + threadIdx.x] < min_2.y)
+//            {
+//                min_2.y = dist[i + offset + threadIdx.x] ;  
+//            }
+//        }
+//    }
+//    // find best in warp 
+//    best_in_warp(min_2) ; 
+//    // find best in all the 32 warps  
+//    __shared__ float4 best[32] ; 
+//    if(threadIdx.x == 0)
+//    {
+//        best[threadIdx.y] = min_2 ;
+//    }
+//    __syncthreads() ; 
+//
+//    if(threadIdx.y == 0){
+//        min_2 = best[threadIdx.x] ; 
+//        best_in_warp(min_2) ; 
+//    }
+//    
+//    if(threadIdx.y == 0 && threadIdx.x == 0)
+//    {
+//        sorted[blockIdx.x] = min_2 ; 
+//    }
+//}
+ 
+// x warps per dist 
+__global__ void min_dist(float *  dist, int size ,float4 * sorted)
 {
-    float2 min_2 ;  
+      //           finds the dist array         x dim       y dim pos                      
+    int offset = (blockIdx.x * size)+ threadIdx.y * blockDim.x ;
+   
+    float4 min_2 ;  
     min_2.x = MAXFLOAT; 
     min_2.y = MAXFLOAT; 
-   
-    int offset = (blockIdx.x) * size + (threadIdx.y * 32) ; 
-    if(threadIdx.x == 0){
-        //printf("offset %d  \n", offset) ; 
+
     
-    }
-    for (int i = 0; (i + threadIdx.x) < size ; i+= 1024)
+    for (int i = 0; (i + threadIdx.x +  threadIdx.y * blockDim.x  ) < size ; i+=(blockDim.x * blockDim.y) )
     {
         if(dist[i + offset + threadIdx.x] < min_2.x)
         {
             min_2.y = min_2.x ; 
-            min_2.x = dist[i + offset + threadIdx.x] ;  
-        }
-        else{
-            if(dist[i + offset + threadIdx.x] < min_2.y)
-            {
-                min_2.y = dist[i + offset + threadIdx.x] ;  
-            }
-        }
-    }
-    // find best in warp 
-    best_in_warp(min_2) ; 
-    // find best in all the 32 warps  
-    __shared__ float2 best[32] ; 
-    if(threadIdx.x == 0)
-    {
-        best[threadIdx.y] = min_2 ;
-    }
-    __syncthreads() ; 
-
-    if(threadIdx.y == 0){
-        min_2 = best[threadIdx.x] ; 
-        best_in_warp(min_2) ; 
-    }
-    
-    if(threadIdx.y == 0 && threadIdx.x == 0)
-    {
-        sorted[blockIdx.x] = min_2 ; 
-    }
-}
- 
-// x warps per dist 
-__global__ void min_dist(float *  dist, int size ,float2 * sorted)
-{
-    float2 min_2 ;  
-    min_2.x = MAXFLOAT; 
-    min_2.y = MAXFLOAT; 
-    //           finds the dist array         x dim       y dim pos                         z dim
-    int offset = (blockIdx.x * size)+ threadIdx.y * blockDim.x ;
-    
-    for (int i = 0; (i + threadIdx.x +  threadIdx.y * blockDim.x  ) < size ; i+=(blockDim.x * blockDim.y) )
-    {
-        // float2 temp = 
-        if(dist[i + offset + threadIdx.x ] < min_2.x)
-        {
-            min_2.y = min_2.x ; 
             min_2.x = dist[i + offset + threadIdx.x ] ;  
+            min_2.w = min_2.z ;  
+            min_2.z = i + threadIdx.x + threadIdx.y * blockDim.x  ; 
         }
         else{
             if(dist[i + offset + threadIdx.x ] < min_2.y)
             {
                 min_2.y = dist[i + offset + threadIdx.x ] ;  
+                min_2.w = i + threadIdx.x + threadIdx.y * blockDim.x   ;  
             }
         }
     }
-
     best_in_warp(min_2) ;   
 
-    __shared__ float2 best[32] ; 
+    __shared__ float4 best[32] ; 
     
     if(threadIdx.y == 0)
     {
         best[threadIdx.x].x = MAXFLOAT ;
         best[threadIdx.x].y = MAXFLOAT ; 
     }
-
     __syncthreads() ; 
     if(threadIdx.x == 0)
     {

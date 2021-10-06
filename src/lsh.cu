@@ -5,37 +5,38 @@
 #include "lsh.h"
 #include "knn_brute.h"
 #include <memory>
+#include "helper.h"
 #include <vector>
 #include <algorithm>
 #include <bits/stdc++.h>
 
 using namespace std;
-//to do make rand array[l*nbits] 128 long and multyply with q_points 
-// todo cublas scale data to have 0 as center instead of 0.5 , brute only 2nn  ? 
+//to do make rand array[l*nbits] 128 long and multyply with q_points
+// todo cublas scale data to have 0 as center instead of 0.5 , brute only 2nn  ?
 void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l, int max_dist)
 {
 
-    float *rand_array;
+    des_t *rand_array;
     cudaMallocManaged((void **)&rand_array, sizeof(des_t) * nbits * l);
     // make random vectors
-    for (size_t i = 0; i < 128; i++)
+    for (size_t i = 0; i < l * nbits; i++)
     {
-        make_vec(l * nbits, (rand_array[(l * nbits) * i]));
+        make_vec(128, rand_array[i * 128]);
     }
     // make an array of ints with one int for each r_point
     int *code;
     int *index;
-     // need a copy to sort using sort
+    // need a copy to sort using sort
     int *index_copy;
     int *bucket_start;
-    
+
     cudaMallocManaged((void **)&index, sizeof(int) * n_r * l);
     cudaMemset(index, 0, sizeof(int) * n_r * l);
 
     cudaMallocManaged((void **)&index_copy, sizeof(int) * n_r * l);
     cudaMemset(index_copy, 0, sizeof(int) * n_r * l);
 
-    cudaMallocManaged((void **)&bucket_start, 2 << nbits);
+    cudaMallocManaged((void **)&bucket_start, (2 << nbits) * sizeof(int));
 
     for (int i = 0; i < (2 << nbits); i++)
     {
@@ -45,11 +46,9 @@ void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     cudaMallocManaged((void **)&code, sizeof(int) * n_r * l);
     cudaMemset(code, 0, sizeof(int) * n_r * l);
 
-    float * test ;  
+    float *test;
     cudaMallocManaged((void **)&test, sizeof(float) * n_r * l);
-    cublasHandle_t handle;
-    cublasCreate_v2(&handle) ; 
-    
+
     // dot all vectors and add the bit to the coresponding int bit for the r points
     for (int i = 0; i < l; i++)
     {
@@ -59,8 +58,8 @@ void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
             for (int iii = 0; iii < nbits; iii++)
             {
                 float sum = dot(r_points[ii], rand_array[iii + i * nbits]);
-               // cublasSdot(handle, 128, r_points[ii], 1, rand_array[iii + i *nbits], 1, &test[ii + i *n_r]) ; 
-                if ( sum<= 0)
+                // cublasSdot(handle, 128, r_points[ii], 1, rand_array[iii + i *nbits], 1, &test[ii + i *n_r]) ;
+                if (sum <= 0)
                 {
                     code[ii + i * n_r] |= 1UL << iii;
                 }
@@ -112,7 +111,7 @@ void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
             bucket_start[code[index[i]]] = i;
         }
     }
-   
+
     int *code_q;
     cudaMallocManaged((void **)&code_q, sizeof(int) * n_r * l);
     cudaMemset(code_q, 0, sizeof(int) * n_r * l);
@@ -299,51 +298,84 @@ float dot(des_t v1, des_t v2)
     float sum = 0.f;
     for (size_t i = 0; i < 128; i++)
     {
-        float a = ((float *)v1)[i] - 0.5;
-        float b = ((float *)v2)[i] - 0.5;
+        float a = ((float *)v1)[i];
+        float b = ((float *)v2)[i];
         float c = a * b;
         sum += c;
     }
     return sum;
 }
-
-void gpu_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l)
+float test_dot(float *v1, des_t v2)
 {
-    // repeat l times !! will lead to comparing the same points multiple times ?
-
+    float sum = 0.f;
+    for (size_t i = 0; i < 128; i++)
+    {
+        float a = ((float *)v1)[(4 * 4) * i];
+        float b = ((float *)v2)[i];
+        float c = a * b;
+        sum += c;
+    }
+    return sum;
+}
+void gpu_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l, int max_dist)
+{
     // make random vectors
 
-    des_t *rand_array;
+    float *rand_array;
     cudaMallocManaged((void **)&rand_array, sizeof(des_t) * nbits * l);
 
     // fill array
     uint64_t seed = 123451;
-    dim3 grid_size(1, 1, 1);
-    dim3 block_size(32, 1, 1);
+    dim3 grid_size(nbits * l, 1, 1);
+    dim3 block_size(128, 1, 1);
 
     //fill in the rand array
     random_vector<<<grid_size, block_size>>>(seed, rand_array);
-    
+
     // make an array of ints with one int for each r_point
+    float *dot_res;
     int *code;
     int *index;
-     // need a copy to sort using sort
+    // need a copy to sort using sort
     int *index_copy;
     int *bucket_start;
-    
+
     cudaMallocManaged((void **)&index, sizeof(int) * n_r * l);
     cudaMemset(index, 0, sizeof(int) * n_r * l);
 
     cudaMallocManaged((void **)&index_copy, sizeof(int) * n_r * l);
     cudaMemset(index_copy, 0, sizeof(int) * n_r * l);
 
-    cudaMallocManaged((void **)&bucket_start, 2 << nbits);
+    cudaMallocManaged((void **)&bucket_start, (2 << nbits) * sizeof(int));
 
+    cudaMallocManaged((void **)&dot_res, l * nbits * n_r);
 
+    float a = 1.0f;
+    float b = 1.0f;
+    cublasHandle_t handle;
+    cublasCreate(&handle);
+
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, l * nbits, n_r, 128, &a, (float *)rand_array, l * nbits, (float *)r_points, 128, &b, dot_res, l * nbits);
+    
+    /**
+     * rand_arraay = L*nbitsX128
+     * r_points = 128 X n_r
+     * dot_res = L*nbits X n_r if we were to use cublas  so n_r * L*nbits  
+     * dot_res[] 
+     **/
+  // test there are some difrencece caused by the way the calculation is done  
+  //  for (int i = 0; i < n_r; i++)
+  //  {
+  //      for (int ii = 0; ii < (l * nbits); ii++)
+  //      {
+  //          compare_float(test_dot((rand_array + ii), r_points[i]), dot_res[i * (l * nbits) + ii]);
+  //      }
+  //  }
+    
 }
 
 // kernels for finding the start of each bucket in the index array
-// not sure if this is really faster than cpu todo TEST 
+// not sure if this is really faster than cpu todo TEST
 // sets helper values
 __global__ void set_helper(int *helper, int *code, int *index)
 {
@@ -355,7 +387,7 @@ __global__ void set_bucket_start(int *helper, int *bucket_start, int l, int n_r)
 {
     for (int i = threadIdx.x; i < (l * n_r); i += 32)
     {
-        
+
         int v = (helper[i] == blockIdx.x);
         unsigned int mask = __ballot_sync(0xffffffff, v);
 
@@ -365,45 +397,22 @@ __global__ void set_bucket_start(int *helper, int *bucket_start, int l, int n_r)
         if (threadIdx.x == 0)
         {
             int g = i + x - 1;
-            bucket_start[blockIdx.x] = g ; 
+            bucket_start[blockIdx.x] = g;
             break;
         }
     }
 }
 
-// dot two arrays of vectors and set bit corresponding to the dot product  
-
-__global__ void dot_set_bit(float * rand, float * points, int * buckets, int size, int nbits, float * test)
+// set the bit
+__global__ void dot_set_bit(float *rand, float *points, int *buckets, int size, int nbits, float *test)
 {
-    float res = 0.f ; 
-     
-    int bucket = 0 ;
-
-    if(res >= 0)
-    {    
-        bucket |= 1UL << threadIdx.y ; 
-    } 
-
-    // l n_r nbits 
-    bucket += __shfl_down_sync( 0xffffffff, bucket, 16 );
-    bucket += __shfl_down_sync( 0xffffffff, bucket, 8 ); 
-    bucket += __shfl_down_sync( 0xffffffff, bucket, 4 ); 
-    bucket += __shfl_down_sync( 0xffffffff, bucket, 2 );
-    bucket += __shfl_down_sync( 0xffffffff, bucket, 1 );   
-    if(threadIdx.y == 0)
-    {
-        //test[] = bucket ;  
-    }
-    //code[ii + i * n_r] |= 1UL << iii;
-    // block = n_r, 1 1
-    // thread = l, 32 , 1 
 }
 
 // initialize array to a value
 __global__ void initialize(int *array, int value)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    array[idx] =  value ;
+    array[idx] = value;
 }
 
 // may have to make vectors more random ! hmm todo
@@ -416,9 +425,8 @@ __device__ inline float random_float(uint64_t seed, int idx)
     return curand_uniform(&s);
 }
 //fills a vector with random floats
-__global__ void random_vector(uint64_t seed, des_t *vec)
+__global__ void random_vector(uint64_t seed, float *vec)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    float *vector = (float *)vec;
-    vector[idx] = random_float(seed, idx);
+    vec[idx] = random_float(seed, idx);
 }
