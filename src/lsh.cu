@@ -11,17 +11,15 @@
 #include <bits/stdc++.h>
 
 using namespace std;
-//to do make rand array[l*nbits] 128 long and multyply with q_points
-// todo cublas scale data to have 0 as center instead of 0.5 , brute only 2nn  ?
+
 void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l, int max_dist)
 {
-
     des_t *rand_array;
     cudaMallocManaged((void **)&rand_array, sizeof(des_t) * nbits * l);
     // make random vectors
     for (size_t i = 0; i < l * nbits; i++)
     {
-        make_vec(128, rand_array[i * 128]);
+        make_vec(128, rand_array[i]);
     }
     // make an array of ints with one int for each r_point
     int *code;
@@ -46,9 +44,32 @@ void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     cudaMallocManaged((void **)&code, sizeof(int) * n_r * l);
     cudaMemset(code, 0, sizeof(int) * n_r * l);
 
-    float *test;
-    cudaMallocManaged((void **)&test, sizeof(float) * n_r * l);
+    // test if our gpu dot works 
+    float * dot_res;
+    cudaMallocManaged((void **)&dot_res, l * nbits * n_r* sizeof(float));
 
+    dim3 grid(n_r, nbits, l) ;
+    dim3 block(32, 1, 1) ;   
+    dot_gpu<<<grid, block>>>(rand_array, r_points, dot_res); 
+    cudaDeviceSynchronize();
+    
+    for (int i = 0; i < n_r; i++)
+    {
+        for (int ii = 0; ii < l; ii++)
+        {
+            for (int iii = 0; iii < nbits ; iii++)
+            {
+                float sum = dot(r_points[i] ,rand_array[iii + ii * nbits] );
+                printf("sum = %f ", sum) ; 
+                printf("gpu = %f \n", dot_res[i * nbits * l + ii * nbits + iii]) ; 
+                
+            }
+            
+        }
+        
+    }
+     
+    
     // dot all vectors and add the bit to the coresponding int bit for the r points
     for (int i = 0; i < l; i++)
     {
@@ -58,7 +79,6 @@ void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
             for (int iii = 0; iii < nbits; iii++)
             {
                 float sum = dot(r_points[ii], rand_array[iii + i * nbits]);
-                // cublasSdot(handle, 128, r_points[ii], 1, rand_array[iii + i *nbits], 1, &test[ii + i *n_r]) ;
                 if (sum <= 0)
                 {
                     code[ii + i * n_r] |= 1UL << iii;
@@ -82,25 +102,6 @@ void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
 
     std::sort(index, index + n_r * l, [&](const int &i, const int &j) -> bool
               { return (code[index_copy[i]] < code[index_copy[j]]); });
-
-    //index
-    // code[index[r number ]] -> bucket
-    //
-
-    // index[range (bucket start[bucket] ->  [while code [index in r:points]] == bucket)] -> index in r_points of elemtn in bucket
-    // r_points[index in r_points ] -> dest vec
-
-    int *helper;
-    cudaMallocManaged((void **)&helper, sizeof(int) * n_r * l);
-
-    //set bucket start
-    dim3 block_size(32, 1, 1);
-    dim3 grid_size(((l * n_r) / 32) + 1, 1, 1);
-    set_helper<<<grid_size, block_size>>>(helper, code, index);
-
-    cudaDeviceSynchronize();
-    dim3 block(32, 1, 1);
-    dim3 grid(n_r * l, 1, 1);
 
     //  set_bucket_start<<<grid, block>>>(helper, bucket_start, l, n_r);
     //  cudaDeviceSynchronize();
@@ -245,43 +246,6 @@ void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
             }
         }
     }
-
-    // brute for each q point in the right bucket
-    // for (int i = 0; i < l; i++)
-    // {
-    //     for (int ii = 0; ii < n_q; ii++)
-    //     {
-    //         int bucket = code_q[ii + (i * n_q)] ;
-    //         int start = bucket_start[bucket] ;
-    //         int iii = start ;
-    //         while ((start != -1) && code[index[iii]] == bucket)
-    //         {
-    //             float dist = host_lenght(r_points[index[iii]], q_points[ii] ) ;
-    //             if(i == 0)
-    //             {
-    //                 sorted[ii].w = MAXFLOAT ;
-    //                 sorted[ii].x = MAXFLOAT ;
-    //                 sorted[ii].y = MAXFLOAT ;
-    //                 sorted[ii].z = MAXFLOAT ;
-    //             }
-    //             if(dist < sorted[ii].x)
-    //             {
-    //                 sorted[ii].y = sorted[ii].x ;
-    //                 sorted[ii].x = dist;
-    //
-    //                 sorted[ii].w= sorted[ii].z;
-    //                 sorted[ii].z= index[iii];
-    //             }
-    //             else{
-    //                 if(dist < sorted[ii].y)
-    //                 {
-    //                     sorted[ii].w = index[iii] ;
-    //                 }
-    //             }
-    //             iii ++ ;
-    //         }
-    //     }
-    // }
 }
 
 void make_vec(int dim, des_t &vec)
@@ -298,8 +262,8 @@ float dot(des_t v1, des_t v2)
     float sum = 0.f;
     for (size_t i = 0; i < 128; i++)
     {
-        float a = ((float *)v1)[i];
-        float b = ((float *)v2)[i];
+        float a = ((float *)v1)[i] -0.5;
+        float b = ((float *)v2)[i]- 0.5;
         float c = a * b;
         sum += c;
     }
@@ -321,11 +285,11 @@ void gpu_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted,
 {
     // make random vectors
 
-    float *rand_array;
+    des_t *rand_array;
     cudaMallocManaged((void **)&rand_array, sizeof(des_t) * nbits * l);
 
     // fill array
-    uint64_t seed = 123451;
+    uint64_t seed = clock();
     dim3 grid_size(nbits * l, 1, 1);
     dim3 block_size(128, 1, 1);
 
@@ -333,7 +297,6 @@ void gpu_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted,
     random_vector<<<grid_size, block_size>>>(seed, rand_array);
 
     // make an array of ints with one int for each r_point
-    float *dot_res;
     int *code;
     int *index;
     // need a copy to sort using sort
@@ -348,15 +311,21 @@ void gpu_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted,
 
     cudaMallocManaged((void **)&bucket_start, (2 << nbits) * sizeof(int));
 
+    // dot rand_array and r_points to make buckets  
+
+
+    // cublas can maybe be used if the query is big enough how big test todo   
+    // dot_res layout [x][l * nbits]
+    float *dot_res;
     cudaMallocManaged((void **)&dot_res, l * nbits * n_r);
 
-    float a = 1.0f;
-    float b = 1.0f;
-    cublasHandle_t handle;
-    cublasCreate(&handle);
+   // float a = 1.0f;
+   // float b = 1.0f;
+   // cublasHandle_t handle;
+   // cublasCreate(&handle);
 
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, l * nbits, n_r, 128, &a, (float *)rand_array, l * nbits, (float *)r_points, 128, &b, dot_res, l * nbits);
-    
+   // cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, l * nbits, n_r, 128, &a, (float *)rand_array, l * nbits, (float *)r_points, 128, &b, dot_res, l * nbits);
+   // 
     /**
      * rand_arraay = L*nbitsX128
      * r_points = 128 X n_r
@@ -371,7 +340,34 @@ void gpu_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted,
   //          compare_float(test_dot((rand_array + ii), r_points[i]), dot_res[i * (l * nbits) + ii]);
   //      }
   //  }
+
+
+    dim3 grid(n_r, l, 1) ;
+    dim3 block(32, nbits, 1) ;   
+    dot_gpu<<<grid, block>>>(rand_array, r_points, dot_res); 
+
     
+    //index
+    // code[index[r number ]] -> bucket
+    //
+
+    // index[range (bucket start[bucket] ->  [while code [index in r:points]] == bucket)] -> index in r_points of elemtn in bucket
+    // r_points[index in r_points ] -> dest vec
+//
+//    int *helper;
+//    cudaMallocManaged((void **)&helper, sizeof(int) * n_r * l);
+//
+//    //set bucket start
+//    dim3 block_size(32, 1, 1);
+//    dim3 grid_size(((l * n_r) / 32) + 1, 1, 1);
+//    set_helper<<<grid_size, block_size>>>(helper, code, index);
+//
+//    cudaDeviceSynchronize();
+//    dim3 block(32, 1, 1);
+//    dim3 grid(n_r * l, 1, 1);
+
+ 
+
 }
 
 // kernels for finding the start of each bucket in the index array
@@ -402,11 +398,73 @@ __global__ void set_bucket_start(int *helper, int *bucket_start, int l, int n_r)
         }
     }
 }
-
-// set the bit
-__global__ void dot_set_bit(float *rand, float *points, int *buckets, int size, int nbits, float *test)
+// n_r, l, 1 
+// nbits ,1 ,1 for now we use 32 threads but could also use 16 8 4 2 or 64 / 128  
+// set the bit for the one random array then combine whitin warp to form 32 bit buckets 
+// want buckets to have layaout 
+// bucket[0][0] ......... bucket[0][l]
+// bucket[n][0] --------- bucket[n][l]
+//
+__global__ void set_bit(int *buckets, int size, int nbits, float * dot)
 {
+    int code = 0 ; 
+    // index of the dot prouduct we need 
+    
+    int dot_idx =  blockIdx.x * gridDim.y * blockDim.x  + blockIdx.y * blockDim.x + threadIdx.x ;    
+
+    if(dot[dot_idx] <= 0 ) 
+    {
+        code |= 1UL << threadIdx.x;
+    }
+    int v = 1 ; 
+    if(threadIdx.x > nbits){
+        v =  0 ; 
+    }
+    unsigned int mask = __ballot_sync(0xffffffff, v);
+    // do reduce on the acitve threads in the warp 
+    int i = blockDim.x ;  
+    if(blockDim.x > 16 && blockDim.x != 32 )
+    {
+
+        code += __shfl_down_sync( mask, code,  );
+    }
+    else if (i > 8 && i != 8 )
+    {
+        
+    }
+    
 }
+//want dot array to be 
+// point 0 * rand [0][0 - nbits], .......   point n * rand [n][0 - nbits]
+// point n * rand [0][0 - nbits], .......   point n * rand [n][0 - nbits] 
+// 
+// want rand[n] to only be read by blocks on the same sm. load in shared memory  
+//  or want points[n ] to only be read by blocks on the same sm 
+__global__ void dot_gpu(des_t *  rand, des_t * points, float *dot)
+{
+    // called with 
+    // n, nbits, l grid  
+    //32 1 1 block 
+    
+    float res = 0.f ; 
+    float4 a = ((float4 * )points[blockIdx.x])[threadIdx.x ];
+    float4 b = ((float4 * )rand[blockIdx.z * gridDim.y + blockIdx.y])[threadIdx.x]; 
+
+    res +=
+        (a.x -0.5)*(b.x - 0.5) + (a.y -0.5)*(b.y -0.5) +
+        (a.z -0.5)*(b.z - 0.5) + (a.w -0.5)*(b.w -0.5)  ;  
+   
+    res += __shfl_down_sync( 0xffffffff, res, 16 );
+    res += __shfl_down_sync( 0xffffffff, res, 8 ); 
+    res += __shfl_down_sync( 0xffffffff, res, 4 ); 
+    res += __shfl_down_sync( 0xffffffff, res, 2 );
+    res += __shfl_down_sync( 0xffffffff, res, 1 );   
+    if(threadIdx.x == 0)
+    {
+        dot[blockIdx.x * gridDim.y * gridDim.z + blockIdx.z * gridDim.y + blockIdx.y] = res ;     
+    }  
+}
+
 
 // initialize array to a value
 __global__ void initialize(int *array, int value)
@@ -425,8 +483,10 @@ __device__ inline float random_float(uint64_t seed, int idx)
     return curand_uniform(&s);
 }
 //fills a vector with random floats
-__global__ void random_vector(uint64_t seed, float *vec)
+__global__ void random_vector(uint64_t seed, des_t *array)
 {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int idx = threadIdx.x;
+    float * vec = (float *)array[blockIdx.x]  ;
     vec[idx] = random_float(seed, idx);
+    
 }
