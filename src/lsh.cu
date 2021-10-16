@@ -23,16 +23,26 @@ void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     }
     // make an array of ints with one int for each r_point
     int *code;
+    int * code_test ; 
     int *index;
     // need a copy to sort using sort
     int *index_copy;
     int *bucket_start;
 
+    int * index_test ; 
+    int * index_copy_test ; 
     cudaMallocManaged((void **)&index, sizeof(int) * n_r * l);
     cudaMemset(index, 0, sizeof(int) * n_r * l);
 
     cudaMallocManaged((void **)&index_copy, sizeof(int) * n_r * l);
     cudaMemset(index_copy, 0, sizeof(int) * n_r * l);
+    
+    cudaMallocManaged((void **)&index_test, sizeof(int) * n_r * l);
+    cudaMemset(index_test, 0, sizeof(int) * n_r * l);
+
+    cudaMallocManaged((void **)&index_copy_test, sizeof(int) * n_r * l);
+    cudaMemset(index_copy_test, 0, sizeof(int) * n_r * l);
+
 
     cudaMallocManaged((void **)&bucket_start, (2 << nbits) * sizeof(int));
 
@@ -43,16 +53,25 @@ void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
 
     cudaMallocManaged((void **)&code, sizeof(int) * n_r * l);
     cudaMemset(code, 0, sizeof(int) * n_r * l);
+    cudaMallocManaged((void **)&code_test, sizeof(int) * n_r * l);
+    cudaMemset(code_test, 0, sizeof(int) * n_r * l);
+
 
     // test if our gpu dot works 
     float * dot_res;
     cudaMallocManaged((void **)&dot_res, l * nbits * n_r* sizeof(float));
-
+    double s = start_timer() ; 
     dim3 grid(n_r, nbits, l) ;
     dim3 block(32, 1, 1) ;   
     dot_gpu<<<grid, block>>>(rand_array, r_points, dot_res); 
     cudaDeviceSynchronize();
-    
+    grid.z = 1 ; 
+    grid.y = l ; 
+    block.x = nbits ;
+    set_bit<<<grid, block>>>(code_test, nbits, dot_res) ; 
+    cudaDeviceSynchronize();
+    print_time(s, "gpu") ; 
+    s = start_timer() ; 
     for (int i = 0; i < n_r; i++)
     {
         for (int ii = 0; ii < l; ii++)
@@ -60,37 +79,54 @@ void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
             for (int iii = 0; iii < nbits ; iii++)
             {
                 float sum = dot(r_points[i] ,rand_array[iii + ii * nbits] );
-                printf("sum = %f ", sum) ; 
-                printf("gpu = %f \n", dot_res[i * nbits * l + ii * nbits + iii]) ; 
-                
-            }
-            
-        }
-        
-    }
-     
-    
-    // dot all vectors and add the bit to the coresponding int bit for the r points
-    for (int i = 0; i < l; i++)
-    {
-        for (int ii = 0; ii < n_r; ii++)
-        {
-            //            printf(" %i bucket = ", (ii + i * n_r));
-            for (int iii = 0; iii < nbits; iii++)
-            {
-                float sum = dot(r_points[ii], rand_array[iii + i * nbits]);
+          //     printf("sum = %f ", sum) ; 
+          //     printf("gpu = %f \n", dot_res[i * nbits * l + ii * nbits + iii]) ; 
                 if (sum <= 0)
                 {
-                    code[ii + i * n_r] |= 1UL << iii;
+                    code[i * l + ii ] |= 1UL << iii;
                 }
+
             }
-            //           printf(" %i ", code[ii + i * n_r]);
-            //           printf("\n \n");
-        }
+                if(code[i * l + ii] != code_test[i * l + ii])
+                {
+                    printf("cpu = %i ", code[i * l + ii]) ; 
+                    printf("gpu = %i \n", code_test[i*l + ii] ) ;                       
+ 
+                }
+       }
     }
+    print_time(s, "cpu") ; 
+     
+    
+ //   // dot all vectors and add the bit to the coresponding int bit for the r points
+ //   for (int i = 0; i < l; i++)
+ //   {
+ //       for (int ii = 0; ii < n_r; ii++)
+ //       {
+ //           //            printf(" %i bucket = ", (ii + i * n_r));
+ //           for (int iii = 0; iii < nbits; iii++)
+ //           {
+ //               float sum = dot(r_points[ii], rand_array[iii + i * nbits]);
+ //               if (sum <= 0)
+ //               {
+ //                   code[ii + i * n_r] |= 1UL << iii;
+ //               }
+ //           }
+ //           //           printf(" %i ", code[ii + i * n_r]);
+ //           //           printf("\n \n");
+ //       }
+ //   }
 
     // make buckets for r points
-
+    grid.x = n_r/32 +1 ; 
+    grid.y = l ; 
+    block.x = 32 ; 
+    block.y = 3 ; 
+    s = start_timer() ; 
+    set_bucket<<<grid,block>>>(index_test, index_copy_test, n_r) ; 
+    print_time(s, "gpu"); 
+    cudaDeviceSynchronize();
+    s = start_timer() ; 
     for (int i = 0; i < l; i++)
     {
         for (int ii = 0; ii < n_r; ii++)
@@ -100,6 +136,7 @@ void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         }
     }
 
+    print_time(s, "cpu") ; 
     std::sort(index, index + n_r * l, [&](const int &i, const int &j) -> bool
               { return (code[index_copy[i]] < code[index_copy[j]]); });
 
@@ -365,9 +402,6 @@ void gpu_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted,
 //    cudaDeviceSynchronize();
 //    dim3 block(32, 1, 1);
 //    dim3 grid(n_r * l, 1, 1);
-
- 
-
 }
 
 // kernels for finding the start of each bucket in the index array
@@ -405,34 +439,29 @@ __global__ void set_bucket_start(int *helper, int *bucket_start, int l, int n_r)
 // bucket[0][0] ......... bucket[0][l]
 // bucket[n][0] --------- bucket[n][l]
 //
-__global__ void set_bit(int *buckets, int size, int nbits, float * dot)
+__global__ void set_bit(int *buckets, int nbits, float * dot)
 {
-    int code = 0 ; 
+    int var = 0 ; 
     // index of the dot prouduct we need 
     
     int dot_idx =  blockIdx.x * gridDim.y * blockDim.x  + blockIdx.y * blockDim.x + threadIdx.x ;    
-
-    if(dot[dot_idx] <= 0 ) 
+    // only care if its a relevent thread 
+    if((threadIdx.x ) < nbits )
     {
-        code |= 1UL << threadIdx.x;
+        if(dot[dot_idx] <= 0 ) 
+        {
+            var |= 1UL << threadIdx.x;
+        }
     }
-    int v = 1 ; 
-    if(threadIdx.x > nbits){
-        v =  0 ; 
-    }
-    unsigned int mask = __ballot_sync(0xffffffff, v);
-    // do reduce on the acitve threads in the warp 
-    int i = blockDim.x ;  
-    if(blockDim.x > 16 && blockDim.x != 32 )
+    var += __shfl_down_sync( 0xffffffff, var, 16 );
+    var += __shfl_down_sync( 0xffffffff, var, 8 ); 
+    var += __shfl_down_sync( 0xffffffff, var, 4 ); 
+    var += __shfl_down_sync( 0xffffffff, var, 2 );
+    var += __shfl_down_sync( 0xffffffff, var, 1 );   
+    if(threadIdx.x == 0)
     {
-
-        code += __shfl_down_sync( mask, code,  );
-    }
-    else if (i > 8 && i != 8 )
-    {
-        
-    }
-    
+        buckets[blockIdx.x * gridDim.y + blockIdx.y ] = var ;     
+    }  
 }
 //want dot array to be 
 // point 0 * rand [0][0 - nbits], .......   point n * rand [n][0 - nbits]
@@ -445,6 +474,7 @@ __global__ void dot_gpu(des_t *  rand, des_t * points, float *dot)
     // called with 
     // n, nbits, l grid  
     //32 1 1 block 
+    // could change to 32, x ,1 block todo test if faster 0_0 
     
     float res = 0.f ; 
     float4 a = ((float4 * )points[blockIdx.x])[threadIdx.x ];
@@ -453,12 +483,7 @@ __global__ void dot_gpu(des_t *  rand, des_t * points, float *dot)
     res +=
         (a.x -0.5)*(b.x - 0.5) + (a.y -0.5)*(b.y -0.5) +
         (a.z -0.5)*(b.z - 0.5) + (a.w -0.5)*(b.w -0.5)  ;  
-   
-    res += __shfl_down_sync( 0xffffffff, res, 16 );
-    res += __shfl_down_sync( 0xffffffff, res, 8 ); 
-    res += __shfl_down_sync( 0xffffffff, res, 4 ); 
-    res += __shfl_down_sync( 0xffffffff, res, 2 );
-    res += __shfl_down_sync( 0xffffffff, res, 1 );   
+    reduce(res) ; 
     if(threadIdx.x == 0)
     {
         dot[blockIdx.x * gridDim.y * gridDim.z + blockIdx.z * gridDim.y + blockIdx.y] = res ;     
@@ -490,3 +515,33 @@ __global__ void random_vector(uint64_t seed, des_t *array)
     vec[idx] = random_float(seed, idx);
     
 }
+__device__ inline void reduce(float &var)
+{
+    var += __shfl_down_sync( 0xffffffff, var, 16 );
+    var += __shfl_down_sync( 0xffffffff, var, 8 ); 
+    var += __shfl_down_sync( 0xffffffff, var, 4 ); 
+    var += __shfl_down_sync( 0xffffffff, var, 2 );
+    var += __shfl_down_sync( 0xffffffff, var, 1 );   
+}
+// called with 
+// grid n_r/32 +1 l 1
+// block 32 3 1 
+
+__global__ void set_bucket(int * index, int * index_copy, int n)
+{
+    int i = blockDim.x * blockDim.y * blockIdx.x +  blockDim.x * threadIdx.y + threadIdx.x ; 
+    if(n > i)
+    {
+        index[i + blockIdx.y * n] = i ; 
+        index_copy[i + blockIdx.y * n] = i ; 
+    }
+}
+//    for (int i = 0; i < l; i++)
+//    {
+//        for (int ii = 0; ii < n_r; ii++)
+//        {
+//            index[ii + i * n_r] = ii;
+//            index_copy[ii + i * n_r] = ii;
+//        }
+//    }
+

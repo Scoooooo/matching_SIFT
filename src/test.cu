@@ -19,8 +19,8 @@ int main(int argc, char *argv[])
 void test()
 {
     int dim = 128;
-    int size_q = 5;
-    int size_r = 4;
+    int size_q = 1200;
+    int size_r = 43001;
     des_t *q_points;
     des_t *r_points;
 
@@ -39,7 +39,7 @@ void test()
 
     //   cudaProfilerStart();
     double t = start_timer() ; 
-    host_lsh(q_points, r_points, size_q, size_r, sorted_host, 3, 2, 2);
+    host_lsh(q_points, r_points, size_q, size_r, sorted_host, 5, 3, 2);
     print_time(t, "host brute") ; 
     //    cudaProfilerStop() ;
     t = start_timer() ; 
