@@ -9,7 +9,7 @@ double start_timer()
    return ((double)tp.tv_sec + (double)tp.tv_usec*1.e-6);
 }
 
-void print_time(double start, char * s)
+void print_time(double start, const char *  s)
 {
     double time = start_timer() - start;
     printf("%s took %lf time \n", s, time) ;      
