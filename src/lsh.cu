@@ -21,7 +21,9 @@
 #endif
 
 using namespace std;
-
+int fact(int n){
+    return (n==1 || n==0) ? 1: n * fact(n - 1);
+}
 void host_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l, int max_dist)
 {
 
@@ -548,12 +550,20 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     int *bucket_start;
     // dot from random vector to q / r points 
     float * dot_res_r, * dot_res_q;
-    
+ 
     // a bucket of all the points each q has to check   
+    // number of buckets within hamming distance r given n bits = n!/r!(n-r)! where r is 1 -> r  
+    int size_bucket = 0 ;
+    for (int i = 1; i < max_dist + 1; i++)
+    {
+        size_bucket += fact(nbits)/(fact(i)*fact(nbits - i)) ;  
+    }
+
+    printf("need %i \n", size_bucket) ; 
     int *buckets;
 
     cudaMallocManaged((void **)&buckets, sizeof(int) * n_q * n_r);
-    cudaMemset(buckets, 0, sizeof(int) * n_q * n_r);
+    cudaMemset(buckets, 0, sizeof(int) * n_q * size_bucket);
     
     cudaMallocManaged((void **)&rand_array, sizeof(des_t) * nbits);
     cudaMallocManaged((void **)&index, sizeof(int) * n_r);  
@@ -634,92 +644,99 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         // 1 one time for each q use n_r size array so we dont get duplicates  
         // 2 same but  multpile qs at the same time 
         // dont use array may end ip doing the same points multiple times worht ?? :( 
-       for (int ii = 0; ii < n_q; ii++)
-        {
-            int bucket = code_q[ii];
-            int start = bucket_start[bucket];
-            int iii = start;
-            while ((start != -1) && code_r[index[iii ]] == bucket)
-            {
-                buckets[ii * n_r + index[iii]] = 1;
-                iii++;
-            }
-
-            // add from negbouring buckets up to n bits away // n can be given by input but is by defualt 1
-            // is there any meaing to adding more than
-
-            // make all buckets with a hamming distance of n
-
-            // 0000 n = 4 
-            // 1000 0100 0010 0001 = 4 
-            // 1100 1010 1001 + 3 
-            // 0110 0101 + 2 
-            // 0011 + 1 
-
-            // 000
-            // 100 010 001 
-            // 110 101 
-            // 011
-
-            // 101
-            // 001 111 100 
-            // 011 q 
-            int s = 0 ; 
-            for (int n = 0; n < max_dist; n++)
-            {
-                int counters[n + 1];
-
-                for (int q = 0; q < (n + 1); q++)
-                {
-                    counters[q] = q;
-                }
-
-                bool done = false;
-                
-                while (!done)
-                {
-                    int neighbour_bucket = bucket;
-                    for (int nn = 0; nn < (n + 1); nn++)
-                    {
-                        neighbour_bucket ^= 1UL << counters[nn];
-                    }
-                    // printf("bucket is %i neighbour is %i \n", bucket, neighbour_bucket) ;
-                    // we have bucket
-                    int start = bucket_start[neighbour_bucket];
-                    int iii = start;
-
-                    s ++ ; 
-                    while ((start != -1) && code_r[index[iii]] == neighbour_bucket)
-                    {
-                        buckets[ii * n_r + index[iii]] = 1;
-                        iii++;
-                    }
-                    bool flag = false;
-                    int nnn = n;
-                    int bits = nbits;
-                    while (!flag)
-                    {
-
-                        if (((counters[nnn] + 1) >= bits) && nnn == 0)
-                        {
-                            flag = true;
-                            done = true;
-                        }
-                        else if ((counters[nnn] + 1) < bits)
-                        {
-                            counters[nnn] += 1;
-                            flag = true;
-                        }
-
-                        nnn--;
-                        bits--;
-                    }
-                }
-            }
-
-        printf("count %i \n", s) ; 
-        }
-
+        
+//       for (int ii = 0; ii < n_q; ii++)
+//       {
+//            int bucket = code_q[ii];
+//            int start = bucket_start[bucket];
+//            int iii = start;
+//            while ((start != -1) && code_r[index[iii ]] == bucket)
+//            {
+//                buckets[ii * n_r + index[iii]] = 1;
+//                iii++;
+//            }
+//
+//            // add from negbouring buckets up to n bits away // n can be given by input but is by defualt 1
+//            // is there any meaing to adding more than
+//
+//            // make all buckets with a hamming distance of n
+//
+//            // 0000 n = 4 
+//            // 1000 0100 0010 0001 = 4 
+//            // 1100 1010 1001 + 3 
+//            // 0110 0101 + 2 
+//            // 0011 + 1 
+//
+//            // 000
+//            // 100 010 001 
+//            // 110 101 
+//            // 011
+//            // 00000 5  3 
+//
+//            // 5 + 8 + 9 = 23 
+//            // 11000 10100 10010 10001 
+//            // 01100 01010 01001 00110 
+//            // 00101 00011 
+//            // 11100 11010 11001 10101 10011 01011 00111  
+//            // 101
+//            // 001 111 100 
+//            // 011 q 
+//            int s = 0 ; 
+//
+//            for (int n = 0; n < max_dist; n++)
+//            {
+//                int counters[n + 1];
+//
+//                for (int q = 0; q < (n + 1); q++)
+//                {
+//                    counters[q] = q;
+//                }
+//
+//                bool done = false;
+//                
+//                while (!done)
+//                {
+//                    int neighbour_bucket = bucket;
+//                    for (int nn = 0; nn < (n + 1); nn++)
+//                    {
+//                        neighbour_bucket ^= 1UL << counters[nn];
+//                    }
+//                    // printf("bucket is %i neighbour is %i \n", bucket, neighbour_bucket) ;
+//                    // we have bucket
+//                    int start = bucket_start[neighbour_bucket];
+//                    int iii = start;
+//
+//                    s ++ ; 
+//                    while ((start != -1) && code_r[index[iii]] == neighbour_bucket)
+//                    {
+//                        buckets[ii * n_r + index[iii]] = 1;
+//                        iii++;
+//                    }
+//                    bool flag = false;
+//                    int nnn = n;
+//                    int bits = nbits;
+//                    while (!flag)
+//                    {
+//
+//                        if (((counters[nnn] + 1) >= bits) && nnn == 0)
+//                        {
+//                            flag = true;
+//                            done = true;
+//                        }
+//                        else if ((counters[nnn] + 1) < bits)
+//                        {
+//                            counters[nnn] += 1;
+//                            flag = true;
+//                        }
+//
+//                        nnn--;
+//                        bits--;
+//                    }
+//                }
+//            }
+//
+//        }
+//
     }
     for (int i = 0; i < n_q; i++)
     {

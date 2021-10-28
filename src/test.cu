@@ -10,6 +10,30 @@
 void make_rand_vector(int dim, des_t &vec);
 void make_rand_vec_array(int dim, int size, des_t *array);
 void test();
+#include <iostream>
+#include <vector>
+#include <functional>
+
+void walkingBits(size_t n, size_t k) {
+    std::vector<bool> seq(n, false);
+    std::function<void(const size_t, const size_t, const int, size_t)> walk = [&](const size_t n, const size_t k, const int dir, size_t pos){
+        for (size_t i = 1; i <= n - k + 1; i++, pos += dir) {
+            seq[pos] = true;
+            if (k > 1) {
+                walk(n - i, k - 1, i % 2 ? dir : -dir, pos + dir * (i % 2 ? 1 : n - i));
+            }
+            else {
+                for (bool v : seq) {
+                    std::cout << v;
+                }
+                std::cout << std::endl;;
+            }
+            seq[pos] = false;
+        }
+    };
+    walk(n, k, 1, 0);
+}
+
 
 int main(int argc, char *argv[])
 {
@@ -33,12 +57,15 @@ void test()
     cudaMallocManaged((void **)&sorted_host, size_r * sizeof(float4));
     cudaMallocManaged((void **)&sorted_dev, size_r * sizeof(float4));
 
+
+    // 4 2 3 3 
+    // 8 2 7 7
     //data
     make_rand_vec_array(dim, size_q, q_points);
     make_rand_vec_array(dim, size_r, r_points);
     double s = start_timer();
     //   cudaProfilerStart();
-    lsh_test(q_points, r_points, size_q, size_r, sorted_host, 4, 1, 2);
+    lsh_test(q_points, r_points, size_q, size_r, sorted_host, 7, 1, 3);
     //    cudaProfilerStop() ;
     //gpu_lsh(q_points, r_points, size_q, size_r, sorted_host, 4, 4, 2);
     print_time(s, "gpu lsh"); 
@@ -66,5 +93,6 @@ void test()
     }
     printf("found %i out of %i nn \n",((size_q * 2)- failed),(size_q *2) ) ; 
 }
+
 
 
