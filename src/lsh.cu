@@ -494,10 +494,36 @@ __device__ inline void reduce(float &var)
     var += __shfl_down_sync( 0xffffffff, var, 2 );
     var += __shfl_down_sync( 0xffffffff, var, 1 );   
 }
+
+
+
+// CALLED WITH 
+// grid n_q, 1, 1 
+//block max_dist, 1, 1 
+__global__ void hamming(int * neighbouring_buckets, int dist, int * bucket )
+{
+    int start = bucket[blockIdx.x] ; 
+    change_bit(4, dist, 1, 0, start) ; 
+}
+__device__ void change_bit(int n, int k, int dir, int pos, int start)
+{
+    for (size_t i = 1; i <= n - k + 1; i++, pos += dir)
+    {
+        start ^= 1UL << pos ; 
+        if (k > 1) 
+        {
+            change_bit(n - i, k - 1, i % 2 ? dir : -dir, pos + dir * (i % 2 ? 1 : n - i), start);
+        }
+        else 
+        {
+            printf("int is %i", start) ; 
+        }
+        start ^= 1UL << pos ; 
+    }
+}
 // called with 
 // grid n_r/32 +1 l 1
 // block 32 3 1 
-
 __global__ void set_bucket(int * index, int * index_copy, int n)
 {
     int i = blockDim.x * blockDim.y * blockIdx.x +  blockDim.x * threadIdx.y + threadIdx.x ; 
@@ -644,7 +670,9 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         // 1 one time for each q use n_r size array so we dont get duplicates  
         // 2 same but  multpile qs at the same time 
         // dont use array may end ip doing the same points multiple times worht ?? :( 
-        
+        dim3 grid_bucket(n_q, 1, 1) ; 
+        dim3 block_bucket(max_dist,1,1) ; 
+
 //       for (int ii = 0; ii < n_q; ii++)
 //       {
 //            int bucket = code_q[ii];
