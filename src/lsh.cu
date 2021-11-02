@@ -494,8 +494,28 @@ __device__ inline void reduce(float &var)
     var += __shfl_down_sync( 0xffffffff, var, 2 );
     var += __shfl_down_sync( 0xffffffff, var, 1 );   
 }
+// called with 
+// only works up to a distance of 3 
+// depends on max_dist, 1 = 1 2 = 2 3 = 6
+// grid n_q/x, 1, 1
+//block nbits, nbits -1, nbits - 2.  
+__global__ void overcomplicated_hamming(int * neighbouring_buckets, int dist, int size, int * bucket ) 
+{
+    if(dist == 1)
+    {
+        __shared__ int start = bucket[blockIdx.x] ; 
+        int neigbour = start ;   
+        neigbour ^= 1UL << threadIdx.x ; 
+// 
+// 0000
+// 1100 1010 1001 0110 0101 0011
+// 4, 3  
+// 1 2 3, 1 2 3, 1 2 3, 1 2 3
+//  
 
-
+    }
+    if(threadIdx.x == threadIdx.y)
+}
 // CALLED WITH 
 // grid n_q, 1, 1 
 //block max_dist, 1, 1 
@@ -505,7 +525,7 @@ __global__ void hamming(int * neighbouring_buckets, int dist, int size, int * bu
     change_bit(size, threadIdx.x, 1, 0, start) ; 
 }
 
-__device__ void change_bit(int n, int k, int dir, int pos, int start)
+ __device__ void change_bit(int n, int k, int dir, int pos, int start)
 {
     for (size_t i = 1; i <= n - k + 1; i++, pos += dir)
     {
@@ -522,7 +542,7 @@ __device__ void change_bit(int n, int k, int dir, int pos, int start)
     }
 }
 // called with 
-// grid n_r/32 +1 l 1
+// grid n_r/32 +1 l 1         
 // block 32 3 1 
 __global__ void set_bucket(int * index, int * index_copy, int n)
 {
@@ -668,12 +688,13 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         // do all the dots at once insted of dividing into L then do  
         // 1 one time for each q use n_r size array so we dont get duplicates  
         // 2 same but  multpile qs at the same time 
-        // dont use array may end ip doing the same points multiple times worht ?? :( 
+        // have a intilzie funtoins which make the data we need  ? 
+        // have all the hamming 
         dim3 grid_bucket(n_q, 1, 1) ; 
         dim3 block_bucket(max_dist,1,1) ; 
         hamming<<<grid_bucket, block_bucket>>>(buckets, max_dist, nbits, code_q ) ; 
 
-        cudaDeviceSynchronize();
+       cudaDeviceSynchronize();
        for (int ii = 0; ii < n_q; ii++)
        {
             int bucket = code_q[ii];
