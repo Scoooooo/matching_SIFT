@@ -18,6 +18,9 @@ __global__ void random_vector(uint64_t seed, des_t *vec) ;
 
 
 __device__ inline void reduce(float &var); 
+__device__ void change_bit(int n, int k, int dir, int pos, int start) ; 
+
+__global__ void hamming(int * neighbouring_buckets, int dist, int size, int * bucket ) ; 
 //make bucket  
 __global__ void dot_gpu(des_t *  rand, des_t * points, float *dot); 
 __global__ void set_bit(int *buckets, int nbits, float * dot); 
@@ -25,3 +28,5 @@ __global__ void set_bit(int *buckets, int nbits, float * dot);
 __global__ void set_bucket(int * index, int * index_copy, int n); 
 
 void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l, int max_dist) ; 
+
+void search_bucket(float4 &min, int bucket, int start, int * code, int * index, des_t * r_p, des_t * q_p, int size_r, int x); 
