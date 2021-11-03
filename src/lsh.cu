@@ -496,25 +496,35 @@ __device__ inline void reduce(float &var)
 }
 // called with 
 // only works up to a distance of 3 
-// depends on max_dist, 1 = 1 2 = 2 3 = 6
+// x depends on max_dist, 1 = 1 2 = 2 3 = 6
 // grid n_q/x, 1, 1
-//block nbits, nbits -1, nbits - 2.  
+// block nbits, 1, 1 for max dist 1 
+// block nbits, nbits -1, 1. for max dist 2  
+// block nbits, nbits -1, nbits - 2. for max dist 3  
 __global__ void overcomplicated_hamming(int * neighbouring_buckets, int dist, int size, int * bucket ) 
 {
     if(dist == 1)
     {
-        __shared__ int start = bucket[blockIdx.x] ; 
-        int neigbour = start ;   
+        // could read more codes to use fewer threads ?
+        // faster ?? each thread would need to do more work  
+        __shared__ int code= bucket[blockIdx.x] ; 
+        int neigbour = code ;   
         neigbour ^= 1UL << threadIdx.x ; 
+        neighbouring_buckets[threadIdx.x + size * blockIdx.x] ; 
+        return ; 
+    }  
 // 
 // 0000
 // 1100 1010 1001 0110 0101 0011
 // 4, 3  
-// 1 2 3, 1 2 3, 1 2 3, 1 2 3
-//  
+//1. 1 2 3, 2. 1 2 3, 3. 1 2 3, 4. 1 2 3
+// 3, 2 ?  
+    if(dist == 2)
+    {
+        __shared__ int code_1 = bucket[blockIdx.x * 2] ; 
+        __shared__ int code_2 = bucket[blockIdx.x * 2 + 1] ; 
 
     }
-    if(threadIdx.x == threadIdx.y)
 }
 // CALLED WITH 
 // grid n_q, 1, 1 
