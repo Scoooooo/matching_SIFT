@@ -506,7 +506,7 @@ __global__ void overcomplicated_hamming(int * neighbouring_buckets, int nbits, i
     __shared__ int code ;  
     if(threadIdx.x == 0 && threadIdx.y == 0)
     {
-        __shared__ int code = bucket[blockIdx.x] ; 
+//        __shared__ int code = bucket[blockIdx.x] ; 
     }
     // need to wait for x to read 
     if(dist == 1)
@@ -540,7 +540,7 @@ __global__ void overcomplicated_hamming(int * neighbouring_buckets, int nbits, i
 // works for odd 
     if(dist == 2)
     {
-        __shared__ int code = bucket[blockIdx.x] ; 
+        // __shared__ int code = bucket[blockIdx.x] ; 
 
         int neigbour = code ; 
         neigbour  ^= 1UL << threadIdx.x ; 
