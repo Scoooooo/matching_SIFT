@@ -57,7 +57,6 @@ void test()
     cudaMallocManaged((void **)&sorted_host, size_r * sizeof(float4));
     cudaMallocManaged((void **)&sorted_dev, size_r * sizeof(float4));
 
-
     // 4 2 3 3 
     // 8 2 7 7
     //data
@@ -92,6 +91,8 @@ void test()
         
     }
     printf("found %i out of %i nn \n",((size_q * 2)- failed),(size_q *2) ) ; 
+
+    walkingBits(6,2) ; 
 }
 
 

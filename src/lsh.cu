@@ -497,20 +497,25 @@ __device__ inline void reduce(float &var)
 // called with 
 // only works up to a distance of 3 
 //
-// grid n_q/x, 1, 1
-// block nbits, 1, 1 for max dist 1 
-// block nbits, nbits -1, 1. for max dist 2  
-// block nbits, nbits -1, nbits - 2. for max dist 3  
-__global__ void overcomplicated_hamming(int * neighbouring_buckets, int nbits, int dist, int n_q, int * bucket ) 
+__global__ void find_all_neigbours(int * neighbouring_buckets, int nbits, int dist, int n_q, int * bucket ) 
 {
+
+    // could read more codes to use fewer threads ?
+    __shared__ int code[] ;  
+    if(threadIdx.x == 0)
+    {
+
+        code = bucket[blockIdx.x] ; 
+    }
+    
+    // 0000
+    // 1000 0
     if(dist == 1)
     {
-        // could read more codes to use fewer threads ?
-        // faster ?? each thread would need to do more work  
-        __shared__ int code= bucket[blockIdx.x] ; 
         int neigbour = code ;   
         neigbour ^= 1UL << threadIdx.x ; 
-        neighbouring_buckets[threadIdx.x + n_q * blockIdx.x] ; 
+        neighbouring_buckets[threadIdx.x + n_q * blockIdx.x] = neigbour ; 
+
         return ; 
     }  
 
@@ -523,7 +528,9 @@ __global__ void overcomplicated_hamming(int * neighbouring_buckets, int nbits, i
 // set(4, 4+1), set(4, 4+2) over 5 rolls over and back to 0 
 // set(5, 5+1), set(5, 5+2)
 
-// nbits = 7 dist = 2 gives us 7*6/2 = 21 buckets sice nbits is odd we can divide nbits - 1 
+// 7 * 6 / 2 
+
+// nbits = 7 dist = 2 gives us 7*6/2 = 21 buckets sice nbits is odd we can divide nbits - 1 so 6/2. gives us 7 * 3 threads  
 //7,3 
 // set(1, 1+1), set(1, 1+2) set(1, 1+3) // 1100000 1010000 1001000 
 // set(2, 2+1), set(2, 2+2) set(2, 2+3) // 0110000 0101000 0100100
@@ -532,29 +539,34 @@ __global__ void overcomplicated_hamming(int * neighbouring_buckets, int nbits, i
 // set(5, 5+1), set(5, 5+2) set(5, 5+3) // 0000110 0000101 1000100 
 // set(6, 6+1), set(6, 6+2) set(6, 6+3) // 0000011 1000010 0100010 
 // set(7, 7+1), set(7, 7+2) set(7, 7+3) // 1000001 0100001 0010001
+// works for odd nbits  hm
     if(dist == 2)
     {
-        __shared__ int code = bucket[blockIdx.x] ; 
-
         int neigbour = code ; 
         neigbour  ^= 1UL << threadIdx.x ; 
         neigbour  ^= 1UL << ((threadIdx.x + 1 + threadIdx.y) % nbits)  ; 
     }
 
 
-// 6, 5
+// 6, 5 // 
 // 3, 5
 // 5, 3 ? 
 // set(1, 1+1), set(1, 1+2), set(1, 1+3), set(1, 1+4), set(1, 1+5) // 110000 101000 100100 100010 100001 
 // set(2, 2+1), set(2, 2+2), set(2, 2+3), set(2, 2+4), set(2, 2+5) // 011000 010100 010010 010001 110000 
 // set(3, 3+1), set(3, 3+2), set(3, 3+3), set(3, 3+4), set(3, 3+5) // 110000 101000 100100 100010 100001 
 
-// //110000 101000 1001000 
-// //011000 010100 0100100
-// //001100 001010 0010010
-// //000110 000101 0001001
-// //000011 100010 1000100
-// //100001 010001 0100010
+// //110000 101000 100100 
+// //011000 010100 010010
+// //001100 001010 001001
+// //000110 000101 100100 
+// //000011 100010 010010
+
+    if(dist == 2)
+    {
+        int neigbour = code ; 
+        neigbour  ^= 1UL << threadIdx.x ; 
+        neigbour  ^= 1UL << ((threadIdx.x + 1 + threadIdx.y) % nbits)  ; 
+    }
 }
 
 // CALLED WITH 
