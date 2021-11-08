@@ -91,7 +91,6 @@ void test()
         
     }
     printf("found %i out of %i nn \n",((size_q * 2)- failed),(size_q *2) ) ; 
-
     walkingBits(6,2) ; 
 }
 
