@@ -43,6 +43,27 @@ for x in range(3, 32, 2):
                 print("foud repeat :( ")
                 exit(-1)
     b += 1 
+# 4, 7 
+# 11000000 10100000 10010000 10001000 10000100 10000010 10000001
+# 01100000 01010000 01001000 01000100 01000010 01000001 0011000
+# 00101000 00100100 00100010 00100001 00011000  
+
+# x ,y
+# fake y = indx.x + indx.y + 1  
+# x = indx.x + (fake y) mod indx.y + 2 hmm wrong  
+# y = (fake y) mod indx.y + 2 + x 
+# x =  
+# 2 3 4 5 6 7 8
+# 3 4 5 6 7 8 4  
+# 5 6 7 8 5 6 7
+# 8 6 7 8 7 8 8 
+# x 
+# 1 1 1 1 1 1 1
+# 2 2 2 2 2 2 3
+# 3 3 3 3 4 4 4
+# 4 5 5 5 6 6 7 
+# for a given x, y find value
+# 
 
 
 # pair numbers 
@@ -78,19 +99,23 @@ for x in range(3, 32, 2):
 # 001100
 
 # 110000 101000 
-for x in range(3, 32, 2): 
+for x in range(3, 9, 2): 
     a = int( (x + 1)/2 )
     b = x
+    c = x + 1
 
-    c = a
     print('test', a,' ',b)
     l = []
     for i in range(a):
         for ii in range(b):
-            set(i,(ii + i + 1) % a,c,l) 
+            y_fake = i + ii + 1
+            z = i + ((y_fake) % (b + 2))
+            y = (y_fake % (b + 2)) + z 
+            
+            set(z, y,c,l) 
 
-    #for i in l:
-    #    print(i)
+    for i in l:
+        print(i)
 
     s = a * b 
     for i in range(s): 
@@ -99,5 +124,6 @@ for x in range(3, 32, 2):
            # if(l[i]== l[ii] and i != ii):
            #     print("foud repeat :( ")
            #     exit(-1) 
+
 
    
