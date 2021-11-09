@@ -497,6 +497,11 @@ __device__ inline void reduce(float &var)
 // called with 
 // only works up to a distance of 3 
 //
+
+__global__ void find_all_neigbours_dist_1(int * neighbouring_buckets, int nbits, int dist, int n_q, int * bucket ) 
+{
+    
+}
 __global__ void find_all_neigbours(int * neighbouring_buckets, int nbits, int dist, int n_q, int * bucket ) 
 {
 

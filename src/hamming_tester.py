@@ -99,31 +99,36 @@ for x in range(3, 32, 2):
 # 001100
 
 # 110000 101000 
-for x in range(3, 9, 2): 
+for x in range(3, 33, 2): 
     a = int( (x + 1)/2 )
     b = x
     c = x + 1
 
     print('test', a,' ',b)
     l = []
-    for i in range(a):
-        for ii in range(b):
-            y_fake = i + ii + 1
-            z = i + ((y_fake) % (b + 2))
-            y = (y_fake % (b + 2)) + z 
-            
-            set(z, y,c,l) 
+    for i in range(b):
+        for ii in range(a):
+           # y_fake = i + ii + 1
+           # z = i 
+           # if( ((y_fake) % (b + 2)) == 1): 
+           #     z += 1 
 
-    for i in l:
-        print(i)
+           # y = (y_fake % (b + 2)) + z 
+           #   
+            if( ii == (a-1)):
+                set(i, b,c,l) 
+            else:
+                set(i,(ii + i + 1) % b,c,l) 
+   # for i in l:
+   #     print(i)
 
     s = a * b 
     for i in range(s): 
         for ii in range(s): 
-            pass
-           # if(l[i]== l[ii] and i != ii):
-           #     print("foud repeat :( ")
-           #     exit(-1) 
+            if(l[i]== l[ii] and i != ii):
+                print("foud repeat :( ")
+
+                exit(-1) 
 
 
    
