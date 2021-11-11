@@ -495,82 +495,43 @@ __device__ inline void reduce(float &var)
     var += __shfl_down_sync( 0xffffffff, var, 1 );   
 }
 // called with 
-// only works up to a distance of 3 
+//  
 //
-
-__global__ void find_all_neigbours_dist_1(int * neighbouring_buckets, int nbits, int dist, int n_q, int * bucket ) 
+// want to maximize use of shared memory so there is max one read from global memory per bucket 
+//    
+__global__ void find_all_neigbours_dist_1(int n, int * neighbouring_buckets, int nbits, int dist, int n_q, int * bucket ) 
 {
+    // read all the buckets from global memory
+    // read n per sm / block 
+    __shared__ int buckets[n] ;
     
-}
-__global__ void find_all_neigbours(int * neighbouring_buckets, int nbits, int dist, int n_q, int * bucket ) 
-{
-
-    // could read more codes to use fewer threads ?
-    __shared__ int code[] ;  
-    if(threadIdx.x == 0)
+    if((threadIdx.x * blockIdx.x + threadIdx.y) < n)
     {
 
-        code = bucket[blockIdx.x] ; 
     }
+    __syncthreads() ; 
     
-    // 0000
-    // 1000 0
-    if(dist == 1)
-    {
-        int neigbour = code ;   
-        neigbour ^= 1UL << threadIdx.x ; 
-        neighbouring_buckets[threadIdx.x + n_q * blockIdx.x] = neigbour ; 
+    int neigbour = code ; 
+    neigbour ^= 1UL << threadIdx.x ; 
+    neighbouring_buckets[threadIdx.x + n_q * blockIdx.x] = neigbour ; 
 
-        return ; 
-    }  
-
-// 5, 4 
-// 5, 2 
-// 11000 10100 01100 01010 00110 00101 00011 10010 10001 01001
-// set(1, 1+1), set(1, 1+2)
-// set(2, 2+1), set(2, 2+2)
-// set(3, 3+1), set(3, 3+2)
-// set(4, 4+1), set(4, 4+2) over 5 rolls over and back to 0 
-// set(5, 5+1), set(5, 5+2)
-
-// 7 * 6 / 2 
-
-// nbits = 7 dist = 2 gives us 7*6/2 = 21 buckets sice nbits is odd we can divide nbits - 1 so 6/2. gives us 7 * 3 threads  
-//7,3 
-// set(1, 1+1), set(1, 1+2) set(1, 1+3) // 1100000 1010000 1001000 
-// set(2, 2+1), set(2, 2+2) set(2, 2+3) // 0110000 0101000 0100100
-// set(3, 3+1), set(3, 3+2) set(3, 3+3) // 0011000 0010100 0010010 
-// set(4, 4+1), set(4, 4+2) set(4, 4+3) // 0001100 0001010 0001001 
-// set(5, 5+1), set(5, 5+2) set(5, 5+3) // 0000110 0000101 1000100 
-// set(6, 6+1), set(6, 6+2) set(6, 6+3) // 0000011 1000010 0100010 
-// set(7, 7+1), set(7, 7+2) set(7, 7+3) // 1000001 0100001 0010001
-// works for odd nbits  hm
-    if(dist == 2)
-    {
+    return ; 
+   
+}
+__global__ void find_all_neigbours_dist_2_odd(int * neighbouring_buckets, int nbits, int dist, int n_q, int * bucket ) 
+{
         int neigbour = code ; 
         neigbour  ^= 1UL << threadIdx.x ; 
         neigbour  ^= 1UL << ((threadIdx.x + 1 + threadIdx.y) % nbits)  ; 
-    }
 
-// 6, 5
-// 3, 5
-// 5, 3 ? 
-// set(1, 1+1), set(1, 1+2), set(1, 1+3), set(1, 1+4), set(1, 1+5) // 110000 101000 010100 010010 010001 
-// set(2, 2+1), set(2, 2+2), set(2, 2+3), set(2, 2+4), set(2, 2+5) // 011000 010100 001010 001001 101000 
-// set(3, 3+1), set(3, 3+2), set(3, 3+3), set(3, 3+4), set(3, 3+5) //  
-
-// //110000 101000 100100 
-// //011000 010100 010010
-// //001100 001010 001001
-// //000110 000101 100100
-// //000011 100010 010010
-// pair 
-    if(dist == 2)
-    {
-
-    }
 }
+__global__ void find_all_neigbours_dist_2_pair(int * neighbouring_buckets, int nbits, int dist, int n_q, int * bucket ) 
+{
+        int neigbour = code ; 
+        neigbour  ^= 1UL << threadIdx.x ; 
+        neigbour  ^= 1UL << ((threadIdx.x + 1 + threadIdx.y) % nbits)  ; 
 
+}
 // CALLED WITH 
 // grid n_q, 1, 1 
 //block max_dist, 1, 1 
@@ -644,10 +605,12 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     des_t *rand_array;
     // hash codes  
     int *code_r, *code_q;
+
     // index into bucket array and copy to sort 
     int *index, *index_copy ; 
+
     // given bucket n gives start index 
-    int *bucket_start;
+    int *bucket_start_r, * bucket_start_q;
     // dot from random vector to q / r points 
     float * dot_res_r, * dot_res_q;
  
@@ -668,7 +631,10 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     cudaMallocManaged((void **)&rand_array, sizeof(des_t) * nbits);
     cudaMallocManaged((void **)&index, sizeof(int) * n_r);  
     cudaMallocManaged((void **)&index_copy, sizeof(int) * n_r);
-    cudaMallocManaged((void **)&bucket_start, (2 << nbits) * sizeof(int));
+    // need to index with a smaller array 
+    // this would in the worst case use 17 gb of spac
+    cudaMallocManaged((void **)&bucket_start_r, (2 << nbits) * sizeof(int));
+    
 
     cudaMallocManaged((void **)&code_r, sizeof(int) * n_r);
     cudaMallocManaged((void **)&code_q, sizeof(int) * n_q);
@@ -686,7 +652,7 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         // todo make kernel to set - 1  
         for (int i = 0; i < (2 << nbits); i++)
         {
-            bucket_start[i] = -1;
+            bucket_start_r[i] = -1;
         }
         // make random vectors
         for (int i = 0; i < nbits; i++)
@@ -722,9 +688,9 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         // set bucket start  
         for (int i = 0; i < n_r; i++)
         {
-            if (bucket_start[code_r[index[i]]] == -1)
+            if (bucket_start_r[code_r[index[i]]] == -1)
             {
-                bucket_start[code_r[index[i]]] = i;
+                bucket_start_r[code_r[index[i]]] = i;
             }
         }
 
@@ -808,11 +774,11 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
                 sorted[i].y = MAXFLOAT;
                 sorted[i].z = MAXFLOAT;
             }
-            search_bucket(sorted[i], code_q[i], bucket_start[code_q[i]], code_r, index, r_points, q_points, n_r, i) ; 
+            search_bucket(sorted[i], code_q[i], bucket_start_r[code_q[i]], code_r, index, r_points, q_points, n_r, i) ; 
             for (int ii = 0; ii < size_bucket; ii++)
             {
                 int iii = buckets[max_dist * i + ii]  ; 
-                search_bucket(sorted[i], iii, bucket_start[iii], code_r, index, r_points, q_points, n_r, i) ; 
+                search_bucket(sorted[i], iii, bucket_start_r[iii], code_r, index, r_points, q_points, n_r, i) ; 
             }
         }
     } 
