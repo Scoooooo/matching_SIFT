@@ -495,7 +495,8 @@ __device__ inline void reduce(float &var)
     var += __shfl_down_sync( 0xffffffff, var, 1 );   
 }
 // called with 
-//  
+// block, nbits, x, 1 x = is what ever number we need to make 3 warps nbits = 32 -> 3 31 -> 3 16 -> 6 8-> 12       
+// grid, (bucket_n * 2 /number of sm), 1, 1.  
 //
 // want to maximize use of shared memory so there is max one read from global memory per bucket 
 //    
@@ -510,13 +511,13 @@ __global__ void find_all_neigbours_dist_1(int n, int * neighbouring_buckets, int
 
     }
     __syncthreads() ; 
-    
-    int neigbour = code ; 
-    neigbour ^= 1UL << threadIdx.x ; 
-    neighbouring_buckets[threadIdx.x + n_q * blockIdx.x] = neigbour ; 
 
-    return ; 
-   
+    for (int i = 0; i < n; i++)
+    {
+        int neigbour = buckets[i] ; 
+        neigbour ^= 1UL << threadIdx.x ; 
+        neighbouring_buckets[threadIdx.x + n_q * blockIdx.x] = neigbour ; 
+    }
 }
 __global__ void find_all_neigbours_dist_2_odd(int * neighbouring_buckets, int nbits, int dist, int n_q, int * bucket ) 
 {
@@ -603,14 +604,19 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
  
     // arry of vectors 
     des_t *rand_array;
+
     // hash codes  
     int *code_r, *code_q;
 
     // index into bucket array and copy to sort 
-    int *index, *index_copy ; 
+    int *index, *index_copy; 
 
     // given bucket n gives start index 
-    int *bucket_start_r, * bucket_start_q;
+    int *bucket_start_r, *bucket_start_q;
+
+    //      
+    int *buckets_r, *buckets_q; 
+
     // dot from random vector to q / r points 
     float * dot_res_r, * dot_res_q;
  
@@ -674,7 +680,7 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         dim3 block_set(32,3,1) ;
         set_bucket<<<grid_set, block_set>>>(index, index_copy, n_r) ; 
         cudaDeviceSynchronize();
-        //sort bucket by index  
+        // sort bucket by index  
         // gpu or cpu 
         IndexCompare tc(index_copy, code_r);
     #if PREFER_CPU == 0
@@ -699,7 +705,7 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         dim3 block_dot_q(32, 1, 1) ;   
         dot_gpu<<<grid_dot_q, block_dot_q>>>(rand_array, q_points, dot_res_q); 
 
-        //set bit for hash values for code_q 
+        // set bit for hash values for code_q 
         dim3 grid_bit_q(n_r,1,1) ; 
         dim3 block_bit_q(nbits,1,1) ; 
         set_bit<<<grid_bit_q, block_bit_q>>>(code_q, nbits, dot_res_q) ; 
@@ -715,9 +721,9 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         dim3 block_bucket(max_dist,1,1) ; 
         hamming<<<grid_bucket, block_bucket>>>(buckets, max_dist, nbits, code_q ) ; 
 
-       cudaDeviceSynchronize();
-       for (int ii = 0; ii < n_q; ii++)
-       {
+        cudaDeviceSynchronize();
+        for (int ii = 0; ii < n_q; ii++)
+        {
             int bucket = code_q[ii];
             int c = 0 ; 
             for (int n = 0; n < max_dist; n++)
