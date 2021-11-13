@@ -500,64 +500,63 @@ __device__ inline void reduce(float &var)
 //
 // want to maximize use of shared memory so there is max one read from global memory per bucket 
 //    
-__global__ void find_all_neigbours_dist_1(int n, int * neighbouring_buckets, int nbits, int dist, int n_q, int * bucket ) 
+__global__ void find_all_neigbours_dist_1(int to_read, int * neighbouring_buckets, int nbits, int n_b, int * bucket ) 
 {
     // read all the buckets from global memory
     // read n per sm / block 
-    __shared__ int buckets[n] ;
-    
-    if((threadIdx.x * blockIdx.x + threadIdx.y) < n)
+    __shared__ int buckets ;
+    if(threadIdx.x == 0)
     {
-
+        buckets = bucket[blockIdx.x] ; 
     }
     __syncthreads() ; 
 
-    for (int i = 0; i < n; i++)
-    {
-        int neigbour = buckets[i] ; 
-        neigbour ^= 1UL << threadIdx.x ; 
-        neighbouring_buckets[threadIdx.x + n_q * blockIdx.x] = neigbour ; 
-    }
+    int neigbour = buckets ; 
+    neigbour ^= 1UL << threadIdx.x ; 
+    neighbouring_buckets[threadIdx.x + blockDim.x * blockIdx.x] = neigbour ; 
 }
 __global__ void find_all_neigbours_dist_2_odd(int * neighbouring_buckets, int nbits, int dist, int n_q, int * bucket ) 
 {
-        int neigbour = code ; 
-        neigbour  ^= 1UL << threadIdx.x ; 
-        neigbour  ^= 1UL << ((threadIdx.x + 1 + threadIdx.y) % nbits)  ; 
+     // read all the buckets from global memory
+    // read n per sm / block 
+    __shared__ int buckets ;
+    if(threadIdx.x == 0)
+    {
+        buckets = bucket[blockIdx.x] ; 
+    }
+    __syncthreads() ; 
 
+    int neigbour = buckets ; 
+    neigbour  ^= 1UL << threadIdx.x ; 
+    neigbour  ^= 1UL << ((threadIdx.x + 1 + threadIdx.y) % nbits)  ; 
+    neighbouring_buckets[threadIdx.x * blockDim.y +  threadIdx.y + blockDim.x * blockDim.y * blockIdx.x] = neigbour ; 
 }
 __global__ void find_all_neigbours_dist_2_pair(int * neighbouring_buckets, int nbits, int dist, int n_q, int * bucket ) 
 {
-        int neigbour = code ; 
-        neigbour  ^= 1UL << threadIdx.x ; 
-        neigbour  ^= 1UL << ((threadIdx.x + 1 + threadIdx.y) % nbits)  ; 
-
-}
-// CALLED WITH 
-// grid n_q, 1, 1 
-//block max_dist, 1, 1 
-__global__ void hamming(int * neighbouring_buckets, int dist, int size, int * bucket )
-{
-    int start = bucket[blockIdx.x] ; 
-    change_bit(size, threadIdx.x, 1, 0, start) ; 
-}
-
- __device__ void change_bit(int n, int k, int dir, int pos, int start)
-{
-    for (size_t i = 1; i <= n - k + 1; i++, pos += dir)
+      // read all the buckets from global memory
+    // read n per sm / block 
+    __shared__ int buckets ;
+    if(threadIdx.x == 0)
     {
-        start ^= 1UL << pos ; 
-        if (k > 1) 
-        {
-            change_bit(n - i, k - 1, i % 2 ? dir : -dir, pos + dir * (i % 2 ? 1 : n - i), start);
-        }
-        else 
-        {
-            printf("int is %i \n", start) ; 
-        }
-        start ^= 1UL << pos ; 
+        buckets = bucket[blockIdx.x] ; 
     }
+    __syncthreads() ; 
+
+    int neigbour = buckets ; 
+    int val = 0  ; 
+    if(threadIdx.x + 1 == blockDim.x )
+    {
+        val = blockDim.y ; 
+    }
+    else
+    {
+        val = ((threadIdx.x + 1 + threadIdx.y) % nbits) ;  
+    }
+    neigbour  ^= 1UL << threadIdx.x ; 
+    neigbour  ^= 1UL <<  val ; 
+    neighbouring_buckets[threadIdx.x * blockDim.y +  threadIdx.y + blockDim.x * blockDim.y * blockIdx.x] = neigbour ;   
 }
+
 // called with 
 // grid n_r/32 +1 l 1         
 // block 32 3 1 
@@ -683,6 +682,7 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         // sort bucket by index  
         // gpu or cpu 
         IndexCompare tc(index_copy, code_r);
+
     #if PREFER_CPU == 0
         thrust::device_ptr<int> ptr = thrust::device_pointer_cast(index);
         thrust::sort( ptr, ptr + n_r, tc );
@@ -692,6 +692,8 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         std::sort( ptr, ptr + n_r, tc );
     #endif
         // set bucket start  
+        // could I use hash maps ??? 
+        // 
         for (int i = 0; i < n_r; i++)
         {
             if (bucket_start_r[code_r[index[i]]] == -1)
@@ -718,9 +720,8 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         // have a intilzie funtoins which make the data we need  ? 
         // have all the hamming 
         dim3 grid_bucket(n_q, 1, 1) ; 
-        dim3 block_bucket(max_dist,1,1) ; 
-        hamming<<<grid_bucket, block_bucket>>>(buckets, max_dist, nbits, code_q ) ; 
-
+        dim3 block_bucket(nbits,1,1) ; 
+         
         cudaDeviceSynchronize();
         for (int ii = 0; ii < n_q; ii++)
         {
