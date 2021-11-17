@@ -617,10 +617,11 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     // given bucket n gives start index  
 
     int *bucket_start_r, *bucket_start_q;
+
     // use map for now but needs to be changed  
     std::unordered_map <int, int> map_r, map_q ; 
 
-    //      
+    // this should probly be a thrust vector so we can use uniqe to fill it       
     int *buckets_r, *buckets_q; 
 
     // dot from random vector to q / r points 
@@ -646,7 +647,7 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     cudaMallocManaged((void **)&index_copy_r, sizeof(int) * n_r);
     // need to index with a smaller array 
     // this would in the worst case use 17 gb of memory :(
-//    cudaMallocManaged((void **)&bucket_start_r, (2 << nbits) * sizeof(int));
+    // cudaMallocManaged((void **)&bucket_start_r, (2 << nbits) * sizeof(int));
     
 
     cudaMallocManaged((void **)&code_r, sizeof(int) * n_r);
@@ -697,7 +698,7 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         thrust::sort( ptr, ptr + n_r, tc );
     #else
         cudaDeviceSynchronize();
-        int* ptr = index;
+        int* ptr = index_r;
         std::sort( ptr, ptr + n_r, tc );
     #endif
         // set bucket start  
