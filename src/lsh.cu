@@ -9,7 +9,8 @@
 #include <vector>
 #include <algorithm>
 #include <bits/stdc++.h>
-
+#include <map>
+#include <unordered_map>
 #define PREFER_CPU 0
 
 #if PREFER_CPU == 0
@@ -445,7 +446,7 @@ __global__ void dot_gpu(des_t *  rand, des_t * points, float *dot)
     // called with 
     // n, nbits, l grid  
     //32 1 1 block 
-    // could change to 32, x ,1 block todo test if faster 0_0 
+    // could change to 32, x ,1 block todo test if faster 
     
     float res = 0.f ; 
     float4 a = ((float4 * )points[blockIdx.x])[threadIdx.x ];
@@ -500,7 +501,7 @@ __device__ inline void reduce(float &var)
 //
 // want to maximize use of shared memory so there is max one read from global memory per bucket 
 //    
-__global__ void find_all_neigbours_dist_1(int to_read, int * neighbouring_buckets, int nbits, int n_b, int * bucket ) 
+__global__ void find_all_neigbours_dist_1(int to_read, int * neighbouring_buckets, int nbits, int * bucket, int n_buckets ) 
 {
     // read all the buckets from global memory
     // read n per sm / block 
@@ -513,14 +514,15 @@ __global__ void find_all_neigbours_dist_1(int to_read, int * neighbouring_bucket
 
     int neigbour = buckets ; 
     neigbour ^= 1UL << threadIdx.x ; 
-    neighbouring_buckets[threadIdx.x + blockDim.x * blockIdx.x] = neigbour ; 
+    neighbouring_buckets[threadIdx.x + n_buckets * blockIdx.x] = neigbour ; 
 }
-__global__ void find_all_neigbours_dist_2_odd(int * neighbouring_buckets, int nbits, int dist, int n_q, int * bucket ) 
+
+__global__ void find_all_neigbours_dist_2_odd(int to_read, int * neighbouring_buckets, int nbits, int * bucket ) 
 {
      // read all the buckets from global memory
     // read n per sm / block 
     __shared__ int buckets ;
-    if(threadIdx.x == 0)
+    if(threadIdx.x == 0 && threadIdx.y == 0)
     {
         buckets = bucket[blockIdx.x] ; 
     }
@@ -529,14 +531,15 @@ __global__ void find_all_neigbours_dist_2_odd(int * neighbouring_buckets, int nb
     int neigbour = buckets ; 
     neigbour  ^= 1UL << threadIdx.x ; 
     neigbour  ^= 1UL << ((threadIdx.x + 1 + threadIdx.y) % nbits)  ; 
-    neighbouring_buckets[threadIdx.x * blockDim.y +  threadIdx.y + blockDim.x * blockDim.y * blockIdx.x] = neigbour ; 
+
+    neighbouring_buckets[blockIdx.x * (blockDim.x * blockDim.y + nbits) + nbits + threadIdx.x * blockDim.y + threadIdx.y ] = neigbour ; 
 }
-__global__ void find_all_neigbours_dist_2_pair(int * neighbouring_buckets, int nbits, int dist, int n_q, int * bucket ) 
+__global__ void find_all_neigbours_dist_2_pair(int to_read, int * neighbouring_buckets, int nbits, int * bucket ) 
 {
       // read all the buckets from global memory
     // read n per sm / block 
     __shared__ int buckets ;
-    if(threadIdx.x == 0)
+    if(threadIdx.x == 0 && threadIdx.y == 0)
     {
         buckets = bucket[blockIdx.x] ; 
     }
@@ -544,19 +547,19 @@ __global__ void find_all_neigbours_dist_2_pair(int * neighbouring_buckets, int n
 
     int neigbour = buckets ; 
     int val = 0  ; 
-    if(threadIdx.x + 1 == blockDim.x )
+    if(threadIdx.y + 1 == blockDim.y )
     {
-        val = blockDim.y ; 
+        val = blockDim.x ; 
     }
     else
     {
         val = ((threadIdx.x + 1 + threadIdx.y) % nbits) ;  
     }
     neigbour  ^= 1UL << threadIdx.x ; 
-    neigbour  ^= 1UL <<  val ; 
-    neighbouring_buckets[threadIdx.x * blockDim.y +  threadIdx.y + blockDim.x * blockDim.y * blockIdx.x] = neigbour ;   
-}
+    neigbour  ^= 1UL << val; 
 
+    neighbouring_buckets[blockIdx.x * (blockDim.x * blockDim.y + nbits) + nbits + threadIdx.x * blockDim.y + threadIdx.y ] = neigbour ; 
+}
 // called with 
 // grid n_r/32 +1 l 1         
 // block 32 3 1 
@@ -608,10 +611,14 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     int *code_r, *code_q;
 
     // index into bucket array and copy to sort 
-    int *index, *index_copy; 
+    int *index_r, *index_copy_r; 
 
-    // given bucket n gives start index 
+
+    // given bucket n gives start index  
+
     int *bucket_start_r, *bucket_start_q;
+    // use map for now but needs to be changed  
+    std::unordered_map <int, int> map_r, map_q ; 
 
     //      
     int *buckets_r, *buckets_q; 
@@ -620,25 +627,26 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     float * dot_res_r, * dot_res_q;
  
     // a bucket of all the points each q has to check   
-    // number of buckets within hamming distance r given n bits = n!/r!(n-r)! where r is 1 -> r  
-    int size_bucket = 0 ;
-    for (int i = 1; i < max_dist + 1; i++)
-    {
-        size_bucket += fact(nbits)/(fact(i)*fact(nbits - i)) ;  
-    }
-
-    printf("need %i \n", size_bucket) ; 
     int *buckets;
-
+    // number of buckets within hamming distance r given n bits
+    int size_bucket = 0 ;
+    if(max_dist == 1)
+    {
+        size_bucket = nbits ; 
+    }
+    else{
+        size_bucket = ((nbits * (nbits -1 )) / 2) + nbits ;  
+    }
+    
     cudaMallocManaged((void **)&buckets, sizeof(int) * n_q * size_bucket);
     cudaMemset(buckets, 0, sizeof(int) * n_q * size_bucket);
     
     cudaMallocManaged((void **)&rand_array, sizeof(des_t) * nbits);
-    cudaMallocManaged((void **)&index, sizeof(int) * n_r);  
-    cudaMallocManaged((void **)&index_copy, sizeof(int) * n_r);
+    cudaMallocManaged((void **)&index_r, sizeof(int) * n_r);  
+    cudaMallocManaged((void **)&index_copy_r, sizeof(int) * n_r);
     // need to index with a smaller array 
-    // this would in the worst case use 17 gb of spac
-    cudaMallocManaged((void **)&bucket_start_r, (2 << nbits) * sizeof(int));
+    // this would in the worst case use 17 gb of memory :(
+//    cudaMallocManaged((void **)&bucket_start_r, (2 << nbits) * sizeof(int));
     
 
     cudaMallocManaged((void **)&code_r, sizeof(int) * n_r);
@@ -650,15 +658,18 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     for (int L = 0; L < l; L++)
     {
         // memsetstuff
-        cudaMemset(index, 0, sizeof(int) * n_r );
-        cudaMemset(index_copy, 0, sizeof(int) * n_r );
+        cudaMemset(index_r, 0, sizeof(int) * n_r );
+        cudaMemset(index_copy_r, 0, sizeof(int) * n_r );
         cudaMemset(code_r, 0, sizeof(int) * n_r );
         cudaMemset(code_q, 0, sizeof(int) * n_q);
         // todo make kernel to set - 1  
-        for (int i = 0; i < (2 << nbits); i++)
-        {
-            bucket_start_r[i] = -1;
-        }
+      //  for (int i = 0; i < (2 << nbits); i++)
+      //  {
+      //      bucket_start_r[i] = -1;
+      //  }
+
+        map_r.clear() ; 
+        map_q.clear() ; 
         // make random vectors
         for (int i = 0; i < nbits; i++)
         {
@@ -672,19 +683,17 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         dim3 grid_bit_r(n_r,1,1) ; 
         dim3 block_bit_r(nbits,1,1) ; 
         set_bit<<<grid_bit_r, block_bit_r>>>(code_r, nbits, dot_res_r) ; 
-        cudaDeviceSynchronize();
 
         // make buckets for r points
-        dim3 grid_set(n_r/32+1, 1, 1) ; 
+        dim3 grid_set(n_r/(32*3)+1, 1, 1) ; 
         dim3 block_set(32,3,1) ;
-        set_bucket<<<grid_set, block_set>>>(index, index_copy, n_r) ; 
-        cudaDeviceSynchronize();
+        set_bucket<<<grid_set, block_set>>>(index_r, index_copy_r, n_r) ; 
         // sort bucket by index  
         // gpu or cpu 
-        IndexCompare tc(index_copy, code_r);
+        IndexCompare tc(index_copy_r, code_r);
 
     #if PREFER_CPU == 0
-        thrust::device_ptr<int> ptr = thrust::device_pointer_cast(index);
+        thrust::device_ptr<int> ptr = thrust::device_pointer_cast(index_r);
         thrust::sort( ptr, ptr + n_r, tc );
     #else
         cudaDeviceSynchronize();
@@ -696,10 +705,14 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         // 
         for (int i = 0; i < n_r; i++)
         {
-            if (bucket_start_r[code_r[index[i]]] == -1)
+            if(map_r.find(code_r[index_r[i]]) == map_r.end())
             {
-                bucket_start_r[code_r[index[i]]] = i;
+                map_r.insert({code_r[index_r[i]], i}) ; 
             }
+           // if (bucket_start_r[code_r[index_r[i]]] == -1)
+           // {
+           //     bucket_start_r[code_r[index_r[i]]] = i;
+           // }
         }
 
         // dot random vectors with q
@@ -711,67 +724,30 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         dim3 grid_bit_q(n_r,1,1) ; 
         dim3 block_bit_q(nbits,1,1) ; 
         set_bit<<<grid_bit_q, block_bit_q>>>(code_q, nbits, dot_res_q) ; 
-        cudaDeviceSynchronize();
 
-        // fill buckets
-        // do all the dots at once insted of dividing into L then do  
-        // 1 one time for each q use n_r size array so we dont get duplicates  
-        // 2 same but  multpile qs at the same time 
-        // have a intilzie funtoins which make the data we need  ? 
-        // have all the hamming 
         dim3 grid_bucket(n_q, 1, 1) ; 
-        dim3 block_bucket(nbits,1,1) ; 
-         
-        cudaDeviceSynchronize();
-        for (int ii = 0; ii < n_q; ii++)
+        dim3 block_bucket(nbits, 1 ,1) ;                
+        find_all_neigbours_dist_1<<<grid_bucket, block_bucket>>>(1, buckets, nbits, code_q, size_bucket) ; 
+
+        if(max_dist == 2) 
         {
-            int bucket = code_q[ii];
-            int c = 0 ; 
-            for (int n = 0; n < max_dist; n++)
+            if(nbits % 2)
             {
-                int counters[n + 1];
-
-                for (int q = 0; q < (n + 1); q++)
-                {
-                    counters[q] = q;
-                }
-
-                bool done = false;
-                
-                while (!done)
-                {
-                    int neighbour_bucket = bucket;
-                    for (int nn = 0; nn < (n + 1); nn++)
-                    {
-                        neighbour_bucket ^= 1UL << counters[nn];
-                    }
-                    buckets[ii * size_bucket + c] = neighbour_bucket ; 
-                    c ++ ; 
-                    bool flag = false;
-                    int nnn = n;
-                    int bits = nbits;
-                    while (!flag)
-                    {
-
-                        if (((counters[nnn] + 1) >= bits) && nnn == 0)
-                        {
-                            flag = true;
-                            done = true;
-                        }
-                        else if ((counters[nnn] + 1) < bits)
-                        {
-                            counters[nnn] += 1;
-                            flag = true;
-                        }
-
-                        nnn--;
-                        bits--;
-                    }
-                }
+                dim3 grid_bucket(n_q, 1, 1) ; 
+                dim3 block_bucket(nbits,(nbits - 1) / 2 ,1) ;                
+                find_all_neigbours_dist_2_odd<<<grid_bucket, block_bucket>>>(1, buckets, nbits, code_q) ; 
             }
-           // printf("int c = %i \n", c) ; 
-
+            else
+            {
+                dim3 grid_bucket(n_q, 1, 1) ; 
+                dim3 block_bucket(nbits - 1,(nbits) / 2 ,1) ;                
+                find_all_neigbours_dist_2_pair<<<grid_bucket, block_bucket>>>(1, buckets, nbits, code_q) ; 
+            }
         }
+        
+
+        cudaDeviceSynchronize();
+       
         for (int i = 0; i < n_q; i++)
         {
             if(L == 0)
@@ -781,11 +757,24 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
                 sorted[i].y = MAXFLOAT;
                 sorted[i].z = MAXFLOAT;
             }
-            search_bucket(sorted[i], code_q[i], bucket_start_r[code_q[i]], code_r, index, r_points, q_points, n_r, i) ; 
+            //search_bucket(sorted[i], code_q[i], bucket_start_r[code_q[i]], code_r, index, r_points, q_points, n_r, i) ; 
+            auto it  = map_r.find(code_q[i]) ; 
+            if(it != map_r.end())
+            {
+                int val = it->second ; 
+                search_bucket(sorted[i], code_q[i], val, code_r, index_r, r_points, q_points, n_r, i) ; 
+            }
             for (int ii = 0; ii < size_bucket; ii++)
             {
-                int iii = buckets[max_dist * i + ii]  ; 
-                search_bucket(sorted[i], iii, bucket_start_r[iii], code_r, index, r_points, q_points, n_r, i) ; 
+                int iii = buckets[size_bucket * i + ii]  ; 
+//                printf("int %i = %i \n", ii, iii); 
+               // search_bucket(sorted[i], iii, bucket_start_r[iii], code_r, index, r_points, q_points, n_r, i) ; 
+                auto it  = map_r.find(iii) ; 
+                if(it != map_r.end())
+                {
+                    int val = it->second ; 
+                    search_bucket(sorted[i], iii, val, code_r, index_r, r_points, q_points, n_r, i) ; 
+                }
             }
         }
     } 
@@ -806,6 +795,10 @@ void search_bucket(float4 &min, int bucket, int start, int * code, int * index, 
 
             min.w = min.z;
             min.z = i;
+        }
+        else if (min.z == i)
+        {
+            /* code */
         }
         else
         {

@@ -33,8 +33,8 @@ for x in range(3, 32, 2):
         for ii in range(b):
             set(i,(ii + i + 1) % a,c,l) 
 
-    #for i in l:
-    #    print(i)
+    for i in l:
+        print(i)
 
     s = a * b 
     for i in range(s): 

@@ -23,8 +23,8 @@ void device_brute(des_t * q_points, des_t * r_points, int q_n, int r_n, float4  
     cudaDeviceSynchronize();
 
     // 
-    dim3 blockSize(32,10,1) ; 
     dim3 gridSize(q_n,1,1) ;
+    dim3 blockSize(32,1,1) ; 
 
     min_dist<<<gridSize,blockSize>>>(dev_dist, r_n , sorted) ; 
     cudaDeviceSynchronize();
@@ -172,14 +172,13 @@ __device__ inline void best_in_warp(float4  &min_2)
 // x warps per dist 
 __global__ void min_dist(float *  dist, int size ,float4 * sorted)
 {
-      //           finds the dist array         x dim       y dim pos                      
+    //           finds the dist array         x dim       y dim pos                      
     int offset = (blockIdx.x * size)+ threadIdx.y * blockDim.x ;
    
     float4 min_2 ;  
     min_2.x = MAXFLOAT; 
     min_2.y = MAXFLOAT; 
 
-    
     for (int i = 0; (i + threadIdx.x +  threadIdx.y * blockDim.x  ) < size ; i+=(blockDim.x * blockDim.y) )
     {
         if(dist[i + offset + threadIdx.x] < min_2.x)
