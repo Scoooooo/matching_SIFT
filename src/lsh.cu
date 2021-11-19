@@ -659,6 +659,10 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     cudaMallocManaged((void **)&dot_res_r, nbits * n_r* sizeof(float)); 
     cudaMallocManaged((void **)&dot_res_q, nbits * n_q* sizeof(float));
 
+    cublasHandle_t handle;
+    cublasCreate(&handle);
+
+   
     for (int L = 0; L < l; L++)
     {
         // memsetstuff
@@ -679,15 +683,25 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         {
             make_vec(128, rand_array[i]);
         }
+        //should use thusrt/cublas !! 
         // dot random vectors with n_r
+        double t = start_timer() ; 
+        float a = 1.0f;
+        float b = 1.0f;
+       // cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, 1, n_r, 128, &a, (float *)rand_array,  1, (float *)r_points, 128, &b, dot_res_r, 1);
+        print_time(t, "cublas used \n") ; 
         dim3 grid_dot_r(n_r, nbits, 1) ;
         dim3 block_dot_r(32, 1, 1) ;   
+        t = start_timer() ;
         dot_gpu<<<grid_dot_r, block_dot_r>>>(rand_array, r_points, dot_res_r); 
+
+        print_time(t, "my bad code used \n") ; 
         // set bit for code_r 
         dim3 grid_bit_r(n_r,1,1) ; 
         dim3 block_bit_r(nbits,1,1) ; 
         set_bit<<<grid_bit_r, block_bit_r>>>(code_r, nbits, dot_res_r) ; 
-
+        
+        //thrust will probly be better here 
         // make buckets for r points
         dim3 grid_set(n_r/(32*3)+1, 1, 1) ; 
         dim3 block_set(32,3,1) ;
