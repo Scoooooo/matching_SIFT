@@ -43,8 +43,8 @@ int main(int argc, char *argv[])
 void test()
 {
     int dim = 128;
-    int size_q = 3000;
-    int size_r = 9000;
+    int size_q = 100;
+    int size_r = 10000;
 
     des_t *q_points;
     des_t *r_points;
@@ -65,11 +65,12 @@ void test()
     make_rand_vec_array(dim, size_r, r_points);
     double s = start_timer();
     //   cudaProfilerStart();
-    lsh_test(q_points, r_points, size_q, size_r, sorted_host, 20, 1, 2);
+    lsh_test(q_points, r_points, size_q, size_r, sorted_host, 10, 1, 2);
     //    cudaProfilerStop() ;
     //gpu_lsh(q_points, r_points, size_q, size_r, sorted_host, 4, 4, 2);
     print_time(s, "gpu lsh"); 
     s = start_timer() ; 
+    printf("brute needs to compare %i points \n", size_q * size_r ) ; 
     device_brute(q_points,r_points,size_q,size_r, sorted_dev) ;
     print_time(s, "gpu brute") ; 
     int failed = 0 ; 

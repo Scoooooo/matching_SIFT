@@ -33,10 +33,21 @@ void compare_int(int x, int y)
 // make random data 
 void make_rand_vector(int dim, des_t &vec)
 {
-    for (size_t i = 0; i < dim; i++)
-    {
-        vec[i] = static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
-    }
+     for (size_t i = 0; i < dim; i++)
+        {
+            vec[i] = static_cast<float>(rand())  ;
+    
+        }
+        float sum = 0 ; 
+        for (size_t i = 0; i < dim; i++)
+        {
+           sum += vec[i]*vec[i]  ; 
+        }
+        sum = sqrtf(sum)  ; 
+        for (size_t i = 0; i < dim; i++)
+        {
+            vec[i] /= sum ;  
+        } 
 }
 
 void make_rand_vec_array(int dim, int size, des_t *array)
