@@ -674,7 +674,7 @@ cudaDeviceSynchronize() ;
   for (int i = 0; i < n_r; i++)
   {
       printf("%i = %f \n", i , dot_res_r[i]) ; 
-      printf("%i compare \n", test_dot(((float * )rand_array + i), r_points[i])) ; 
+      printf("%f compare \n", test_dot(((float * )rand_array + i), r_points[i])) ; 
   }
 
 
