@@ -257,7 +257,7 @@ void gpu_lsh(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted,
     // cublas can maybe be used if the query is big enough how big test todo   
     // dot_res layout [x][l * nbits]
     float *dot_res;
-    cudaMallocManaged((void **)&dot_res, l * nbits * n_r);
+    cudaMallocManaged((void **)&dot_res, nbits * n_r);
 
    // float a = 1.0f;
    // float b = 1.0f;
