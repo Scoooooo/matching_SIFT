@@ -606,7 +606,7 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     int *code_r, *code_q;
 
     // index into bucket array and copy to sort 
-    int *index_r, *index_copy_r; 
+    int *index_r, *index_copy_r, * index_q, * index_copy_q ; 
 
     // given bucket n gives start index  
 
@@ -617,8 +617,10 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     // use map for now but needs to be changed  
     std::unordered_map <int, int> map_r, map_q ; 
 
+    // size ?_? 
     // this should probly be a thrust vector so we can use uniqe to fill it       
     int *buckets_r, *buckets_q; 
+
 
     // dot from random vector to q / r points 
     float * dot_res_r, * dot_res_q;
@@ -639,8 +641,12 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     cudaMemset(neighbouring_buckets, 0, sizeof(int) * n_q * size_bucket);
     
     cudaMallocManaged((void **)&rand_array, sizeof(des_t) * nbits);
+
     cudaMallocManaged((void **)&index_r, sizeof(int) * n_r);  
     cudaMallocManaged((void **)&index_copy_r, sizeof(int) * n_r);
+    cudaMallocManaged((void **)&index_q, sizeof(int) * n_q);  
+    cudaMallocManaged((void **)&index_copy_q, sizeof(int) * n_q);
+ 
     // need to index with a smaller array 
     // this would in the worst case use 17 gb of memory :(
     // cudaMallocManaged((void **)&bucket_start_r, (2 << nbits) * sizeof(int));
@@ -652,30 +658,30 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     cudaMallocManaged((void **)&dot_res_r, nbits * n_r* sizeof(float)); 
     cudaMallocManaged((void **)&dot_res_q, nbits * n_q* sizeof(float));
 
-    float a = 1.0f;
-    float b = 1.0f;
-    cublasHandle_t handle;
-    cublasCreate(&handle);
-      for (int i = 0; i < nbits; i++)
-        {
-            make_vec(128, rand_array[i]);
-        }
-   
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, nbits, n_r, 128, &a, (float *)rand_array, nbits, (float *)r_points, 128, &b, dot_res_r, nbits);
-    
-    /**
-     * rand_arraay = L*nbitsX128
-     * r_points = 128 X n_r
-     * dot_res = L*nbits X n_r if we were to use cublas  so n_r * L*nbits  
-     * dot_res[] 
-     **/
-  // test there are some difrencece caused by the way the calculation is done  
-cudaDeviceSynchronize() ; 
-  for (int i = 0; i < n_r; i++)
-  {
-      printf("%i = %f \n", i , dot_res_r[i]) ; 
-      printf("%f compare \n", test_dot(((float * )rand_array + i), r_points[i])) ; 
-  }
+//    float a = 1.0f;
+//    float b = 1.0f;
+//    cublasHandle_t handle;
+//    cublasCreate(&handle);
+//      for (int i = 0; i < nbits; i++)
+//        {
+//            make_vec(128, rand_array[i]);
+//        }
+//   
+//    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, nbits, n_r, 128, &a, (float *)rand_array, nbits, (float *)r_points, 128, &b, dot_res_r, nbits);
+//    
+//    /**
+//     * rand_arraay = L*nbitsX128
+//     * r_points = 128 X n_r
+//     * dot_res = L*nbits X n_r if we were to use cublas  so n_r * L*nbits  
+//     * dot_res[] 
+//     **/
+//  // test there are some difrencece caused by the way the calculation is done  
+//cudaDeviceSynchronize() ; 
+//  for (int i = 0; i < n_r; i++)
+//  {
+//      printf("%i = %f \n", i , dot_res_r[i]) ; 
+//      printf("%f compare \n", test_dot(((float * )rand_array + i), r_points[i])) ; 
+//  }
 
 
    
@@ -684,6 +690,10 @@ cudaDeviceSynchronize() ;
         // memsetstuff
         cudaMemset(index_r, 0, sizeof(int) * n_r );
         cudaMemset(index_copy_r, 0, sizeof(int) * n_r );
+
+        cudaMemset(index_q, 0, sizeof(int) * n_q );
+        cudaMemset(index_copy_q, 0, sizeof(int) * n_q );
+
         cudaMemset(code_r, 0, sizeof(int) * n_r );
         cudaMemset(code_q, 0, sizeof(int) * n_q);
         // todo make kernel to set - 1  
@@ -708,7 +718,6 @@ cudaDeviceSynchronize() ;
         dim3 grid_bit_r(n_r,1,1) ; 
         dim3 block_bit_r(nbits,1,1) ; 
         set_bit<<<grid_bit_r, block_bit_r>>>(code_r, nbits, dot_res_r) ; 
-        
         //thrust will probly be better here 
         // make buckets for r points
         dim3 grid_set(n_r/(32*3)+1, 1, 1) ; 
@@ -727,6 +736,11 @@ cudaDeviceSynchronize() ;
         int* ptr = index_r;
         std::sort( ptr, ptr + n_r, tc );
     #endif
+
+        // thrust unique to get only  the buckets
+        // code[index[x]] ->  
+
+
         // set bucket start  
         // could I use hash maps ??? 
         // 
@@ -741,6 +755,8 @@ cudaDeviceSynchronize() ;
            //     bucket_start_r[code_r[index_r[i]]] = i;
            // }
         }
+
+
 
         // dot random vectors with q
         dim3 grid_dot_q(n_q, nbits, 1) ;
