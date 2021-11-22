@@ -11,11 +11,15 @@
 #include <bits/stdc++.h>
 #include <map>
 #include <unordered_map>
+// thrust 
+#include <thrust/reduce.h>
+#include <thrust/execution_policy.h>
+#include <thrust/iterator/constant_iterator.h>
+#include <thrust/iterator/counting_iterator.h>
 #define PREFER_CPU 0
 
 #if PREFER_CPU == 0
 #include <thrust/scan.h>
-#include <thrust/execution_policy.h>
 #include <thrust/device_vector.h>
 #include <thrust/host_vector.h>
 #include <thrust/sort.h>
@@ -321,7 +325,8 @@ void make_vec(int dim, des_t &vec)
 {
     for (size_t i = 0; i < dim; i++)
     {
-    vec[i] = static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
+    vec[i] = (static_cast<float>(rand()) / static_cast<float>(RAND_MAX)) -0.5 ;
+
     } 
    
     
@@ -356,11 +361,11 @@ float test_dot(float *v1, des_t v2)
 
 class IndexCompare
 {
-    int* _index_copy;
+    thrust::counting_iterator<int> _index_copy;
     int* _code ;
 
 public:
-    IndexCompare( int* index_copy, int* code)
+    IndexCompare( thrust::counting_iterator<int> index_copy, int* code)
         : _index_copy( index_copy)
         , _code( code)
     { }
@@ -371,6 +376,25 @@ public:
         return (_code[_index_copy[left]] < _code[_index_copy[right]]); 
     }
 };
+
+class Bucket_Reduce 
+{
+    thrust::counting_iterator<int> _index_copy;
+    int* _code ;
+
+public:
+    Bucket_Reduce ( thrust::counting_iterator<int> index_copy, int* code)
+        : _index_copy( index_copy)
+        , _code( code)
+    { }
+
+    __host__ __device__
+    inline bool operator()( int left, int right ) const
+    {
+        return (_code[_index_copy[left]] < _code[_index_copy[right]]); 
+    }
+};
+
 
 
 // kernels for finding the start of each bucket in the index array
@@ -450,8 +474,8 @@ __global__ void dot_gpu(des_t *  rand, des_t * points, float *dot)
     float4 b = ((float4 * )rand[blockIdx.z * gridDim.y + blockIdx.y])[threadIdx.x]; 
 
     res +=
-        (a.x -0.5 )*(b.x - 0.5) + (a.y )*(b.y -0.5) +
-        (a.z -0.5 )*(b.z - 0.5) + (a.w )*(b.w -0.5)  ;  
+        (a.x )*(b.x ) + (a.y )*(b.y ) +
+        (a.z )*(b.z ) + (a.w )*(b.w )  ;  
     reduce(res) ; 
     if(threadIdx.x == 0)
     {
@@ -606,7 +630,15 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     int *code_r, *code_q;
 
     // index into bucket array and copy to sort 
-    int *index_r, *index_copy_r, * index_q, * index_copy_q ; 
+    int *index_r, * index_q; 
+
+    // will give us index_copy[0 -> N] = 0 -> N  
+    // used to index into the buckets 
+    thrust::counting_iterator<int> index_copy(0);
+    
+    // will always give us 1 
+    // is used to both find number of elemet in each bucket and make an array of all in use buckets 
+    thrust::constant_iterator<int> array_of_ones(1) ; 
 
     // given bucket n gives start index  
 
@@ -643,9 +675,7 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     cudaMallocManaged((void **)&rand_array, sizeof(des_t) * nbits);
 
     cudaMallocManaged((void **)&index_r, sizeof(int) * n_r);  
-    cudaMallocManaged((void **)&index_copy_r, sizeof(int) * n_r);
     cudaMallocManaged((void **)&index_q, sizeof(int) * n_q);  
-    cudaMallocManaged((void **)&index_copy_q, sizeof(int) * n_q);
  
     // need to index with a smaller array 
     // this would in the worst case use 17 gb of memory :(
@@ -685,14 +715,12 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
 
 
    
+    IndexCompare tc(index_copy, code_r);
     for (int L = 0; L < l; L++)
     {
         // memsetstuff
         cudaMemset(index_r, 0, sizeof(int) * n_r );
-        cudaMemset(index_copy_r, 0, sizeof(int) * n_r );
-
         cudaMemset(index_q, 0, sizeof(int) * n_q );
-        cudaMemset(index_copy_q, 0, sizeof(int) * n_q );
 
         cudaMemset(code_r, 0, sizeof(int) * n_r );
         cudaMemset(code_q, 0, sizeof(int) * n_q);
@@ -714,23 +742,18 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         dim3 grid_dot_r(n_r, nbits, 1) ;
         dim3 block_dot_r(32, 1, 1) ;   
         dot_gpu<<<grid_dot_r, block_dot_r>>>(rand_array, r_points, dot_res_r); 
+
         // set bit for code_r 
         dim3 grid_bit_r(n_r,1,1) ; 
         dim3 block_bit_r(nbits,1,1) ; 
         set_bit<<<grid_bit_r, block_bit_r>>>(code_r, nbits, dot_res_r) ; 
-        //thrust will probly be better here 
-        // make buckets for r points
-        dim3 grid_set(n_r/(32*3)+1, 1, 1) ; 
-        dim3 block_set(32,3,1) ;
-        set_bucket<<<grid_set, block_set>>>(index_r, index_copy_r, n_r) ; 
 
         // sort bucket by index  
         // gpu or cpu 
-        IndexCompare tc(index_copy_r, code_r);
 
     #if PREFER_CPU == 0
         thrust::device_ptr<int> ptr = thrust::device_pointer_cast(index_r);
-        thrust::sort( ptr, ptr + n_r, tc );
+        thrust::sort(thrust::device, ptr, ptr + n_r, tc );
     #else
         cudaDeviceSynchronize();
         int* ptr = index_r;
@@ -740,6 +763,7 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         // thrust unique to get only  the buckets
         // code[index[x]] ->  
 
+        
 
         // set bucket start  
         // could I use hash maps ??? 
@@ -768,27 +792,30 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         dim3 block_bit_q(nbits,1,1) ; 
         set_bit<<<grid_bit_q, block_bit_q>>>(code_q, nbits, dot_res_q) ; 
 
-        //
-        dim3 grid_bucket(n_q, 1, 1) ; 
-        dim3 block_bucket(nbits, 1 ,1) ;                
-        find_all_neigbours_dist_1<<<grid_bucket, block_bucket>>>(1, neighbouring_buckets, nbits, code_q, size_bucket) ; 
+        if(max_dist > 0){
+             
+            dim3 grid_bucket(n_q, 1, 1) ; 
+            dim3 block_bucket(nbits, 1 ,1) ;                
+            find_all_neigbours_dist_1<<<grid_bucket, block_bucket>>>(1, neighbouring_buckets, nbits, code_q, size_bucket) ; 
 
-        if(max_dist == 2) 
-        {
-            if(nbits % 2)
+            if(max_dist == 2) 
             {
-                dim3 grid_bucket(n_q, 1, 1) ; 
-                dim3 block_bucket(nbits,(nbits - 1) / 2 ,1) ;                
-                find_all_neigbours_dist_2_odd<<<grid_bucket, block_bucket>>>(1, neighbouring_buckets, nbits, code_q) ; 
+                if(nbits % 2)
+                {
+                    dim3 grid_bucket(n_q, 1, 1) ; 
+                    dim3 block_bucket(nbits,(nbits - 1) / 2 ,1) ;                
+                    find_all_neigbours_dist_2_odd<<<grid_bucket, block_bucket>>>(1, neighbouring_buckets, nbits, code_q) ; 
+                }
+                else
+                {
+                    dim3 grid_bucket(n_q, 1, 1) ; 
+                    dim3 block_bucket(nbits - 1,(nbits) / 2 ,1) ;                
+                    find_all_neigbours_dist_2_pair<<<grid_bucket, block_bucket>>>(1, neighbouring_buckets, nbits, code_q) ; 
+                }
             }
-            else
-            {
-                dim3 grid_bucket(n_q, 1, 1) ; 
-                dim3 block_bucket(nbits - 1,(nbits) / 2 ,1) ;                
-                find_all_neigbours_dist_2_pair<<<grid_bucket, block_bucket>>>(1, neighbouring_buckets, nbits, code_q) ; 
-            }
-        }
         
+        }
+       
 
         cudaDeviceSynchronize();
 
