@@ -379,19 +379,19 @@ public:
 
 class Bucket_Reduce 
 {
-    thrust::counting_iterator<int> _index_copy;
-    int* _code ;
+    thrust::constant_iterator<int> _array_of_ones;
+    int * _code ;
 
 public:
-    Bucket_Reduce ( thrust::counting_iterator<int> index_copy, int* code)
-        : _index_copy( index_copy)
+    Bucket_Reduce ( thrust::constant_iterator<int> array_of_ones, int* code)
+        : _array_of_ones( array_of_ones )
         , _code( code)
     { }
 
     __host__ __device__
     inline bool operator()( int left, int right ) const
     {
-        return (_code[_index_copy[left]] < _code[_index_copy[right]]); 
+        return true ; 
     }
 };
 
@@ -715,7 +715,9 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
 
 
    
-    IndexCompare tc(index_copy, code_r);
+    IndexCompare code_r_sort(index_copy, code_r);
+    IndexCompare code_q_sort(index_copy, code_q);
+    
     for (int L = 0; L < l; L++)
     {
         // memsetstuff
@@ -743,22 +745,40 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         dim3 block_dot_r(32, 1, 1) ;   
         dot_gpu<<<grid_dot_r, block_dot_r>>>(rand_array, r_points, dot_res_r); 
 
+
         // set bit for code_r 
         dim3 grid_bit_r(n_r,1,1) ; 
         dim3 block_bit_r(nbits,1,1) ; 
         set_bit<<<grid_bit_r, block_bit_r>>>(code_r, nbits, dot_res_r) ; 
 
-        // sort bucket by index  
-        // gpu or cpu 
+        // dot random vectors with q
+        dim3 grid_dot_q(n_q, nbits, 1) ;
+        dim3 block_dot_q(32, 1, 1) ;   
+        dot_gpu<<<grid_dot_q, block_dot_q>>>(rand_array, q_points, dot_res_q); 
 
-    #if PREFER_CPU == 0
-        thrust::device_ptr<int> ptr = thrust::device_pointer_cast(index_r);
-        thrust::sort(thrust::device, ptr, ptr + n_r, tc );
-    #else
-        cudaDeviceSynchronize();
-        int* ptr = index_r;
-        std::sort( ptr, ptr + n_r, tc );
-    #endif
+
+        // set bit for hash values for code_q 
+        dim3 grid_bit_q(n_r,1,1) ; 
+        dim3 block_bit_q(nbits,1,1) ; 
+        set_bit<<<grid_bit_q, block_bit_q>>>(code_q, nbits, dot_res_q) ; 
+
+
+        // sort bucket by index  
+        thrust::device_ptr<int> ptr_r = thrust::device_pointer_cast(index_r);
+        thrust::sort(thrust::device, ptr_r, ptr_r + n_r, code_r_sort );
+ 
+        thrust::device_ptr<int> ptr_q = thrust::device_pointer_cast(index_q);
+        thrust::sort(thrust::device, ptr_q, ptr_q + n_q, code_q_sort );
+ 
+
+//    #if PREFER_CPU == 0
+//        thrust::device_ptr<int> ptr = thrust::device_pointer_cast(index_r);
+//        thrust::sort(thrust::device, ptr, ptr + n_r, code_r_sort );
+//    #else
+//        cudaDeviceSynchronize();
+//        int* ptr = index_r;
+//        std::sort( ptr, ptr + n_r, tc );
+//    #endif
 
         // thrust unique to get only  the buckets
         // code[index[x]] ->  
@@ -774,23 +794,15 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
             {
                 map_r.insert({code_r[index_r[i]], i}) ; 
             }
-           // if (bucket_start_r[code_r[index_r[i]]] == -1)
-           // {
-           //     bucket_start_r[code_r[index_r[i]]] = i;
-           // }
-        }
-
-
-
-        // dot random vectors with q
-        dim3 grid_dot_q(n_q, nbits, 1) ;
-        dim3 block_dot_q(32, 1, 1) ;   
-        dot_gpu<<<grid_dot_q, block_dot_q>>>(rand_array, q_points, dot_res_q); 
-
-        // set bit for hash values for code_q 
-        dim3 grid_bit_q(n_r,1,1) ; 
-        dim3 block_bit_q(nbits,1,1) ; 
-        set_bit<<<grid_bit_q, block_bit_q>>>(code_q, nbits, dot_res_q) ; 
+       }
+         for (int i = 0; i < n_q; i++)
+        {
+            if(map_q.find(code_q[index_q[i]]) == map_q.end())
+            {
+                map_q.insert({code_q[index_q[i]], i}) ; 
+            }
+       }
+        
 
         if(max_dist > 0){
              
