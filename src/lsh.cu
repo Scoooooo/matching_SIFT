@@ -379,19 +379,19 @@ public:
 
 class Bucket_Reduce 
 {
-    thrust::constant_iterator<int> _array_of_ones;
+    int * _index;
     int * _code ;
 
 public:
-    Bucket_Reduce ( thrust::constant_iterator<int> array_of_ones, int* code)
-        : _array_of_ones( array_of_ones )
+    Bucket_Reduce ( int * index, int* code)
+        : _index( index)
         , _code( code)
     { }
 
     __host__ __device__
-    inline bool operator()( int left, int right ) const
+    inline bool operator()( int k1, int k2) const
     {
-        return true ; 
+        return ((_code[_index[k1]] == _code[_index[k2]] )) ; 
     }
 };
 
@@ -632,6 +632,12 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     // index into bucket array and copy to sort 
     int *index_r, * index_q; 
 
+    // all buckets in use 
+    int *buckets_r, *buckets_q; 
+
+    // size of each of the buckets 
+    int * buckets_r_size, * buckets_q_size ;  
+
     // will give us index_copy[0 -> N] = 0 -> N  
     // used to index into the buckets 
     thrust::counting_iterator<int> index_copy(0);
@@ -648,11 +654,6 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     //  
     // use map for now but needs to be changed  
     std::unordered_map <int, int> map_r, map_q ; 
-
-    // size ?_? 
-    // this should probly be a thrust vector so we can use uniqe to fill it       
-    int *buckets_r, *buckets_q; 
-
 
     // dot from random vector to q / r points 
     float * dot_res_r, * dot_res_q;
@@ -688,6 +689,8 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     cudaMallocManaged((void **)&dot_res_r, nbits * n_r* sizeof(float)); 
     cudaMallocManaged((void **)&dot_res_q, nbits * n_q* sizeof(float));
 
+    cudaMallocManaged((void **)&buckets_r_size, sizeof(int) * n_r);
+    cudaMallocManaged((void **)&buckets_r, sizeof(int) * n_r);
 //    float a = 1.0f;
 //    float b = 1.0f;
 //    cublasHandle_t handle;
@@ -717,7 +720,9 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
    
     IndexCompare code_r_sort(index_copy, code_r);
     IndexCompare code_q_sort(index_copy, code_q);
-    
+
+    Bucket_Reduce reduce_r(index_r, code_r) ; 
+
     for (int L = 0; L < l; L++)
     {
         // memsetstuff
@@ -762,15 +767,34 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         dim3 block_bit_q(nbits,1,1) ; 
         set_bit<<<grid_bit_q, block_bit_q>>>(code_q, nbits, dot_res_q) ; 
 
-
+        // index code 
+        // code[index[0 -> i]] = 0 ...... n 
+        // want to sort index 
         // sort bucket by index  
+        for (int i = 0; i < n_r; i++)
+        {
+           index_r[i] =  i ;  
+           index_q[i] =  i ;  
+        }
+        
         thrust::device_ptr<int> ptr_r = thrust::device_pointer_cast(index_r);
-        thrust::sort(thrust::device, ptr_r, ptr_r + n_r, code_r_sort );
- 
+        thrust::sort(ptr_r, ptr_r + n_r, code_r_sort );
+        cudaDeviceSynchronize() ; 
+       
         thrust::device_ptr<int> ptr_q = thrust::device_pointer_cast(index_q);
         thrust::sort(thrust::device, ptr_q, ptr_q + n_q, code_q_sort );
  
-
+        thrust::device_ptr<int> ptr_r_code = thrust::device_pointer_cast(code_r);
+       
+        thrust::device_ptr<int> ptr_buckets_r = thrust::device_pointer_cast(buckets_r);
+        thrust::device_ptr<int> ptr_buckets_r_size = thrust::device_pointer_cast(buckets_r_size);
+        thrust::reduce_by_key(ptr_r_code, ptr_r_code + n_r, array_of_ones, ptr_buckets_r, ptr_buckets_r_size, reduce_r ) ; 
+        for (size_t i = 0; i < 10; i++)
+        {
+            printf("int %i  \n", buckets_r[i]) ; 
+        }
+        
+       
 //    #if PREFER_CPU == 0
 //        thrust::device_ptr<int> ptr = thrust::device_pointer_cast(index_r);
 //        thrust::sort(thrust::device, ptr, ptr + n_r, code_r_sort );
@@ -783,7 +807,7 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         // thrust unique to get only  the buckets
         // code[index[x]] ->  
 
-        
+
 
         // set bucket start  
         // could I use hash maps ??? 
@@ -827,8 +851,6 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
             }
         
         }
-       
-
         cudaDeviceSynchronize();
 
         // will have two arrays an array of all q buckets and all neigbours of each bucket 
