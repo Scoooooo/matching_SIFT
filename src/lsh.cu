@@ -13,6 +13,7 @@
 #include <unordered_map>
 // thrust 
 #include <thrust/reduce.h>
+#include <thrust/gather.h>
 #include <thrust/execution_policy.h>
 #include <thrust/iterator/constant_iterator.h>
 #include <thrust/iterator/counting_iterator.h>
@@ -638,6 +639,8 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     // size of each of the buckets 
     int * buckets_r_size, * buckets_q_size ;  
 
+    // used to reduce by key 
+    int * code_by_index_r, * code_by_index_q ; 
     // will give us index_copy[0 -> N] = 0 -> N  
     // used to index into the buckets 
     thrust::counting_iterator<int> index_copy(0);
@@ -691,6 +694,7 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
 
     cudaMallocManaged((void **)&buckets_r_size, sizeof(int) * n_r);
     cudaMallocManaged((void **)&buckets_r, sizeof(int) * n_r);
+    cudaMallocManaged((void **)&code_by_index_r, sizeof(int) * n_r);
 //    float a = 1.0f;
 //    float b = 1.0f;
 //    cublasHandle_t handle;
@@ -779,22 +783,32 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         
         thrust::device_ptr<int> ptr_r = thrust::device_pointer_cast(index_r);
         thrust::sort(ptr_r, ptr_r + n_r, code_r_sort );
-        cudaDeviceSynchronize() ; 
-       
-        thrust::device_ptr<int> ptr_q = thrust::device_pointer_cast(index_q);
-        thrust::sort(thrust::device, ptr_q, ptr_q + n_q, code_q_sort );
- 
-        thrust::device_ptr<int> ptr_r_code = thrust::device_pointer_cast(code_r);
-       
+
+        thrust::device_ptr<int> ptr_code_by_index_r = thrust::device_pointer_cast(code_by_index_r);
+        
+        thrust::device_ptr<int> ptr_code_r = thrust::device_pointer_cast(code_r);
+
+        thrust::gather(thrust::device, ptr_r, ptr_r + n_r, ptr_code_r, ptr_code_by_index_r) ; 
+        __host__ __device__ thrust::pair<thrust::device_ptr<int>, thrust::device_ptr<int>>  end;
         thrust::device_ptr<int> ptr_buckets_r = thrust::device_pointer_cast(buckets_r);
         thrust::device_ptr<int> ptr_buckets_r_size = thrust::device_pointer_cast(buckets_r_size);
-        thrust::reduce_by_key(ptr_r_code, ptr_r_code + n_r, array_of_ones, ptr_buckets_r, ptr_buckets_r_size, reduce_r ) ; 
-        for (size_t i = 0; i < 10; i++)
+        end = thrust::reduce_by_key( ptr_code_by_index_r, ptr_code_by_index_r+ n_r, array_of_ones, ptr_buckets_r, ptr_buckets_r_size) ; 
+        for (size_t i = 0; i < n_r; i++)
+        {
+            printf("int %i  \n", code_by_index_r[i]) ; 
+        }
+
+         for (size_t i = 0; i < end.first; i++)
         {
             printf("int %i  \n", buckets_r[i]) ; 
         }
-        
-       
+
+         for (size_t i = 0; i < (end.second - buckets_r_size); i++)
+        {
+            printf("int %i  \n", buckets_r_size[i]) ; 
+        }
+
+
 //    #if PREFER_CPU == 0
 //        thrust::device_ptr<int> ptr = thrust::device_pointer_cast(index_r);
 //        thrust::sort(thrust::device, ptr, ptr + n_r, code_r_sort );
