@@ -43,8 +43,8 @@ int main(int argc, char *argv[])
 void test()
 {
     int dim = 128;
-    int size_q = 1000;
-    int size_r = 500;
+    int size_q = 10000;
+    int size_r = 50000;
 
     des_t *q_points;
     des_t *r_points;
@@ -65,7 +65,7 @@ void test()
     make_rand_vec_array(dim, size_r, r_points);
     double s = start_timer();
     //   cudaProfilerStart();
-    lsh_test(q_points, r_points, size_q, size_r, sorted_host, 10, 1, 1);
+    lsh_test(q_points, r_points, size_q, size_r, sorted_host, 20, 100, 0);
     //    cudaProfilerStop() ;
     //gpu_lsh(q_points, r_points, size_q, size_r, sorted_host, 4, 4, 2);
     print_time(s, "gpu lsh"); 
