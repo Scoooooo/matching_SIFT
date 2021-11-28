@@ -596,16 +596,56 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     size_t total_byte ;
     cudaMemGetInfo( &free_byte, &total_byte ) ;
 
-    // need at least  
+    double free_db = (double)free_byte ;
+    double total_db = (double)total_byte ;
+    double used_db = total_db - free_db ;
 
-    //double free_db = (double)free_byte ;
-    //double total_db = (double)total_byte ;
-    //double used_db = total_db - free_db ;
+    printf("GPU memory usage: used = %f, free = %f MB, total = %f MB\n",
 
-   // printf("GPU memory usage: used = %f, free = %f MB, total = %f MB\n",
+         used_db/1024.0/1024.0, free_db/1024.0/1024.0, total_db/1024.0/1024.0);
+    
 
-   //         used_db/1024.0/1024.0, free_db/1024.0/1024.0, total_db/1024.0/1024.0);
- 
+    // we need this much memory 
+//    cudaMallocManaged((void **)&neighbouring_buckets, sizeof(int) * n_q * size_bucket);
+//
+//    cudaMallocManaged((void **)&rand_array, sizeof(des_t) * nbits);
+//
+//    cudaMallocManaged((void **)&index_r, sizeof(int) * n_r);  
+//    cudaMallocManaged((void **)&index_q, sizeof(int) * n_q);  
+// 
+//    // need to index with a smaller array 
+//    // this would in the worst case use 17 gb of memory :(
+//    // cudaMallocManaged((void **)&bucket_start_r, (2 << nbits) * sizeof(int));
+//    
+//
+//    cudaMallocManaged((void **)&code_r, sizeof(int) * n_r);
+//    cudaMallocManaged((void **)&code_q, sizeof(int) * n_q);
+//
+//    cudaMallocManaged((void **)&dot_res_r, nbits * n_r* sizeof(float)); 
+//    cudaMallocManaged((void **)&dot_res_q, nbits * n_q* sizeof(float));
+//
+//    cudaMallocManaged((void **)&buckets_r_size, sizeof(int) * n_r);
+//    cudaMallocManaged((void **)&buckets_r, sizeof(int) * n_r);
+//    cudaMallocManaged((void **)&code_by_index_r, sizeof(int) * n_r);
+//    
+//    cudaMallocManaged((void **)&buckets_q_size, sizeof(int) * n_q);
+//    cudaMallocManaged((void **)&buckets_q, sizeof(int) * n_q);
+//    cudaMallocManaged((void **)&code_by_index_q, sizeof(int) * n_q);
+//
+
+    int * malloced_memory ;  
+
+    int size_bucket = 0 ;
+    if(max_dist == 1)
+    {
+        size_bucket = nbits ; 
+    }
+    else{
+        size_bucket = ((nbits * (nbits -1 )) / 2) + nbits ;  
+    }
+
+    printf("we need %i mb of space ",(((n_r * 4 * 4)+ (n_q * 4 * 4) + sizeof(int) * n_q * size_bucket) + nbits * 4 * n_q + nbits * 4 * n_r + 4 * 128 * nbits) / 1024 ) ; 
+
     // arry of vectors 
     des_t *rand_array;
 
@@ -646,18 +686,8 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     // a bucket of all the points each q has to check   
     int *neighbouring_buckets;
     // number of buckets within hamming distance r given n bits
-    int size_bucket = 0 ;
-    if(max_dist == 1)
-    {
-        size_bucket = nbits ; 
-    }
-    else{
-        size_bucket = ((nbits * (nbits -1 )) / 2) + nbits ;  
-    }
-    
     cudaMallocManaged((void **)&neighbouring_buckets, sizeof(int) * n_q * size_bucket);
-    cudaMemset(neighbouring_buckets, 0, sizeof(int) * n_q * size_bucket);
-    
+
     cudaMallocManaged((void **)&rand_array, sizeof(des_t) * nbits);
 
     cudaMallocManaged((void **)&index_r, sizeof(int) * n_r);  
@@ -681,6 +711,7 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     cudaMallocManaged((void **)&buckets_q_size, sizeof(int) * n_q);
     cudaMallocManaged((void **)&buckets_q, sizeof(int) * n_q);
     cudaMallocManaged((void **)&code_by_index_q, sizeof(int) * n_q);
+
 //    float a = 1.0f;
 //    float b = 1.0f;
 //    cublasHandle_t handle;
@@ -710,19 +741,12 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
    
     IndexCompare code_r_sort(index_copy, code_r);
     IndexCompare code_q_sort(index_copy, code_q);
-    //thrust pointers for r 
-    thrust::device_ptr<int> ptr_r_index = thrust::device_pointer_cast(index_r);
-    thrust::device_ptr<int> ptr_code_by_index_r = thrust::device_pointer_cast(code_by_index_r);
-    thrust::device_ptr<int> ptr_code_r = thrust::device_pointer_cast(code_r);
-    thrust::device_ptr<int> ptr_buckets_r = thrust::device_pointer_cast(buckets_r);
-    thrust::device_ptr<int> ptr_buckets_r_size = thrust::device_pointer_cast(buckets_r_size);
-    //thrust pointers for q 
+   //thrust pointers for q 
     thrust::device_ptr<int> ptr_q_index = thrust::device_pointer_cast(index_q);
     thrust::device_ptr<int> ptr_code_by_index_q = thrust::device_pointer_cast(code_by_index_q);
     thrust::device_ptr<int> ptr_code_q = thrust::device_pointer_cast(code_q);
     thrust::device_ptr<int> ptr_buckets_q = thrust::device_pointer_cast(buckets_q);
     thrust::device_ptr<int> ptr_buckets_q_size = thrust::device_pointer_cast(buckets_q_size);
-   
     for (int L = 0; L < l; L++)
     {
         // memsetstuff
@@ -741,15 +765,22 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         cudaMemset(code_by_index_r, 0, sizeof(int) * n_r );
         cudaMemset(code_by_index_q, 0, sizeof(int) * n_q );
 
-
-
-
+        cudaMemset(neighbouring_buckets, 0, sizeof(int) * n_q * size_bucket);
         // todo make kernel to set - 1  
       //  for (int i = 0; i < (2 << nbits); i++)
       //  {
       //      bucket_start_r[i] = -1;
       //  }
 
+        for (int i = 0; i < n_q; i++)
+        {
+            index_q[i] = i ;      
+        }
+        for (int i = 0; i < n_r; i++)
+        {
+            index_r[i] = i ;      
+        }
+        
         map_r.clear() ; 
         map_q.clear() ; 
         // make random vectors
@@ -774,22 +805,28 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         dim3 block_dot_q(32, 1, 1) ;   
         dot_gpu<<<grid_dot_q, block_dot_q>>>(rand_array, q_points, dot_res_q); 
 
-
         // set bit for hash values for code_q 
         dim3 grid_bit_q(n_r,1,1) ; 
         dim3 block_bit_q(nbits,1,1) ; 
         set_bit<<<grid_bit_q, block_bit_q>>>(code_q, nbits, dot_res_q) ; 
 
+        
         // index code 
         // code[index[0 -> i]] = 0 ...... n 
         // want to sort index 
         // sort bucket by index  
-        for (int i = 0; i < n_r; i++)
-        {
-           index_r[i] =  i ;  
-           index_q[i] =  i ;  
-        }
+            //thrust pointers for r 
+
+  
+        cudaDeviceSynchronize() ; 
+        thrust::device_ptr<int> ptr_r_index = thrust::device_pointer_cast(index_r);
+        thrust::device_ptr<int> ptr_code_by_index_r = thrust::device_pointer_cast(code_by_index_r);
+        thrust::device_ptr<int> ptr_code_r = thrust::device_pointer_cast(code_r);
+        thrust::device_ptr<int> ptr_buckets_r = thrust::device_pointer_cast(buckets_r);
+        thrust::device_ptr<int> ptr_buckets_r_size = thrust::device_pointer_cast(buckets_r_size);
+  
         
+        cudaDeviceSynchronize() ; 
         // sort and reduce for r buckets  
         thrust::sort(ptr_r_index, ptr_r_index + n_r, code_r_sort );
         thrust::gather(thrust::device, ptr_r_index, ptr_r_index + n_r, ptr_code_r, ptr_code_by_index_r) ; 
@@ -800,7 +837,7 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         thrust::gather(thrust::device, ptr_q_index, ptr_q_index + n_q, ptr_code_q, ptr_code_by_index_q) ; 
         auto new_end_q = thrust::reduce_by_key( ptr_code_by_index_q, ptr_code_by_index_q+ n_q, array_of_ones, ptr_buckets_q, ptr_buckets_q_size) ; 
 
-
+        cudaDeviceSynchronize();
         int size_c_d_r = new_end_r.first - (ptr_buckets_r) ; 
         int size_c_d_q = new_end_q.first - (ptr_buckets_q) ; 
 //        for (int i = 0; i < size_c_d_r; i++)
@@ -885,7 +922,6 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         // q -> r_points   
 
 
-         
         // bucket_q  
         for (int i = 0; i < n_q; i++)
         {
