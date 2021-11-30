@@ -946,8 +946,9 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
                 // as long as buckets_r_size is under 93 we can read all of them into shared memory 48000 / (128 * 4) == 93 ish   
                 // need to balance buckets_r_size and buckets_q_size hmm 
                 // 
+                
                 dim3 brute_grid(1,1,1)  ; 
-                dim3 brute_bucket(32,hmm up to 32 ?_? ,1)
+                dim3 brute_bucket(32, buckets_q_size[count_q], 1) ; 
                 printf("%i == %i bucket r size = %i bucket q size = %i  \n" , buckets_r[count_r], buckets_q[count_q], buckets_r_size[count_r],buckets_q_size[count_q]) ; 
                 for (int i = 0; i < buckets_r_size[count_r]; i++)
                 {
