@@ -45,7 +45,7 @@ void test()
     make_rand_vec_array(dim, size_r, r_points);
     double s = start_timer();
     //   cudaProfilerStart();
-    lsh_test(q_points, r_points, size_q, size_r, sorted_host, 10, 5, 1);
+    lsh_test(q_points, r_points, size_q, size_r, sorted_host,   14, 1 , 0);
     //    cudaProfilerStop() ;
     //gpu_lsh(q_points, r_points, size_q, size_r, sorted_host, 4, 4, 2);
     print_time(s, "gpu lsh"); 

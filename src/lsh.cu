@@ -838,8 +838,8 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         auto new_end_q = thrust::reduce_by_key( ptr_code_by_index_q, ptr_code_by_index_q+ n_q, array_of_ones, ptr_buckets_q, ptr_buckets_q_size) ; 
 
         cudaDeviceSynchronize();
-        int size_c_d_r = new_end_r.first - (ptr_buckets_r) ; 
-        int size_c_d_q = new_end_q.first - (ptr_buckets_q) ; 
+        int n_r_buckets = new_end_r.first - (ptr_buckets_r) ; 
+        int n_q_buckets = new_end_q.first - (ptr_buckets_q) ; 
 //        for (int i = 0; i < size_c_d_r; i++)
 //        {
 //            printf("bucket %i size = %i  \n", buckets_r[i],buckets_r_size[i]) ; 
@@ -880,9 +880,9 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
 
         if(max_dist > 0){
              
-            dim3 grid_bucket(n_q, 1, 1) ; 
+            dim3 grid_bucket(n_q_buckets, 1, 1) ; 
             dim3 block_bucket(nbits, 1 ,1) ;                
-            find_all_neigbours_dist_1<<<grid_bucket, block_bucket>>>(1, neighbouring_buckets, nbits, code_q, size_bucket) ; 
+            find_all_neigbours_dist_1<<<grid_bucket, block_bucket>>>(1, neighbouring_buckets, nbits, buckets_q, size_bucket) ; 
 
             if(max_dist == 2) 
             {
@@ -913,6 +913,8 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         // problems with sorting after -> do not know the size of the array we need, writing to the array will need some kind of sync 
         // problems with sortgin before we are done with all the dots -> we will read the same values form global memory many time, will probly be slower. 
 
+        // code_q[i] == i 
+        // code_q[index[i]] -> sorted array
 
         // bucket_q -> code_q -> q_points
         // 0101 -> code_q[index[0101] -> slutt av bucket] -> q_point 
@@ -920,41 +922,120 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         // 0101 -> code_r[index[0101] -> slutt av bucket] -> r_point
 
         // q -> r_points   
-
-
-        // bucket_q  
-        for (int i = 0; i < n_q; i++)
+        if( L == 0)
         {
-            if(L == 0)
+            for (int i = 0; i < n_q; i++)
             {
                 sorted[i].w = MAXFLOAT;
                 sorted[i].x = MAXFLOAT;
                 sorted[i].y = MAXFLOAT;
                 sorted[i].z = MAXFLOAT;
             }
-            //search_bucket(sorted[i], code_q[i], bucket_start_r[code_q[i]], code_r, index, r_points, q_points, n_r, i) ; 
-            auto it  = map_r.find(code_q[i]) ; 
-            if(it != map_r.end())
+        }
+        // dont need to use map_r or map_q 
+        int count_r = 0 ;  
+        int count_q = 0 ;  
+
+        int start_index_r = 0 ; 
+        int start_index_q = 0 ; 
+        while (count_q < n_q_buckets && count_r < n_r_buckets)
+        {
+            if(buckets_q[count_q] == buckets_r[count_r])
             {
-                int val = it->second ; 
-                search_bucket(sorted[i], code_q[i], val, code_r, index_r, r_points, q_points, n_r, i) ; 
-            }
-            for (int ii = 0; ii < size_bucket; ii++)
-            {
-                int iii = neighbouring_buckets[size_bucket * i + ii]  ; 
-//                printf("int %i = %i \n", ii, iii); 
-               // search_bucket(sorted[i], iii, bucket_start_r[iii], code_r, index, r_points, q_points, n_r, i) ; 
-                auto it  = map_r.find(iii) ; 
-                if(it != map_r.end())
+                // start kernel 
+                // as long as buckets_r_size is under 93 we can read all of them into shared memory 48000 / (128 * 4) == 93 ish   
+                // need to balance buckets_r_size and buckets_q_size hmm 
+                // 
+                dim3 brute_grid(1,1,1)  ; 
+                dim3 brute_bucket(32,hmm up to 32 ?_? ,1)
+                printf("%i == %i bucket r size = %i bucket q size = %i  \n" , buckets_r[count_r], buckets_q[count_q], buckets_r_size[count_r],buckets_q_size[count_q]) ; 
+                for (int i = 0; i < buckets_r_size[count_r]; i++)
                 {
-                    int val = it->second ; 
-                    search_bucket(sorted[i], iii, val, code_r, index_r, r_points, q_points, n_r, i) ; 
+                    printf("%i = %i asd \n",i , code_r[index_r[start_index_r + i]]) ; 
+                }
+                printf("\n") ; 
+                for (int i = 0; i < buckets_q_size[count_q]; i++)
+                {
+                    printf("%i = %i asd \n",i , code_q[index_q[start_index_q + i]]) ; 
+                }
+                printf("\n")  ; 
+
+                start_index_q += buckets_q_size[count_q]; 
+                start_index_r += buckets_r_size[count_r]; 
+                count_r ++ ; 
+                count_q ++ ; 
+            }
+            else if( buckets_q[count_q] < buckets_r[count_r])
+            {
+                printf("%i > %i \n" , buckets_r[count_r], buckets_q[count_q]) ; 
+                
+                start_index_q += buckets_q_size[count_q]; 
+                count_q ++ ; 
+            }
+            else
+            {
+                printf("%i < %i \n" , buckets_r[count_r], buckets_q[count_q]) ; 
+
+                start_index_r += buckets_r_size[count_r]; 
+                count_r ++ ; 
+            }
+        }
+        
+
+        for (int i = 0; i < n_q_buckets; i++)
+        {
+           //search_bucket(sorted[i], code_q[i], bucket_start_r[code_q[i]], code_r, index, r_points, q_points, n_r, i) ; 
+            auto it_r  = map_r.find(buckets_q[i]) ; 
+            auto it_q = map_q.find(buckets_q[i]) ; 
+            if(it_r != map_r.end() && it_q != map_q.end())
+            {
+                for (int ii = 0; ii < buckets_q_size[i]; ii++)
+                {
+                    int val = it_r->second ; 
+                    search_bucket(sorted[index_q[it_q->second + ii]], buckets_q[i], val, code_r, index_r, r_points, q_points, n_r, index_q[it_q->second + ii]) ; 
                 }
             }
+            
+          //  for (int ii = 0; ii < size_bucket; ii++)
+          //  {
+          //      int bucket_n = neighbouring_buckets[size_bucket * i + ii]  ; 
+//        //        printf("int %i = %i \n", ii, iii); 
+          //     // search_bucket(sorted[i], iii, bucket_start_r[iii], code_r, index, r_points, q_points, n_r, i) ; 
+          //  auto it_r  = map_r.find(bucket_n) ; 
+          //  auto it_q = map_q.find(bucket_n) ; 
+          //  if(it_r != map_r.end() && it_q != map_q.end())
+          //  {
+          //      int x = it_q->second ; 
+          //      while (x < n_q && code_q[index_q[x]] == bucket_n)
+          //      {
+          //          int val = it_r->second ; 
+          //          search_bucket(sorted[index_q[x]], bucket_n, it_r->second, code_r, index_r, r_points, q_points, n_r, index_q[x]) ; 
+          //          x++ ; 
+          //      }
+          //  }    
+          // }
         }
     } 
     printf("needed to compare %i points in lsh \n", number_of_dots) ; 
 }
+// called with 
+// grid, 1, 1, 1 
+// block 32, 1 - 32, 1 
+
+__global__ void brute_2nn(float4 * sorted, int * index_r, int * index_q, int size_r, int size_q, des_t r_p, des_t q_p) 
+{
+    float4 temp ; 
+
+
+// first each warp reads n points from the r array to shared memory 
+
+// then it reads its own q point 
+
+// finds dist for its own q point to all r points 
+
+// 
+}
+
 
 void search_bucket(float4 &min, int bucket, int start, int * code, int * index, des_t * r_p, des_t * q_p, int size_r, int x)
 {
@@ -963,7 +1044,7 @@ void search_bucket(float4 &min, int bucket, int start, int * code, int * index, 
     while (i < size_r && code[index[i]] == bucket)
     {
         number_of_dots ++ ; 
-        float dist = host_lenght(r_p[i], q_p[x]);
+        float dist = host_lenght(r_p[index[i]], q_p[x]);
 
         if (dist < min.x)
         {
@@ -971,9 +1052,9 @@ void search_bucket(float4 &min, int bucket, int start, int * code, int * index, 
             min.x = dist;
 
             min.w = min.z;
-            min.z = i;
+            min.z = index[i];
         }
-        else if (min.z == i)
+        else if (min.z == index[i])
         {
             /* code */
         }
@@ -982,7 +1063,7 @@ void search_bucket(float4 &min, int bucket, int start, int * code, int * index, 
             if (dist < min.y)
             {
                 min.y = dist;
-                min.w = i;
+                min.w = index[i];
             }
         }
         i ++ ; 
