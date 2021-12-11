@@ -37,3 +37,10 @@ __global__ void find_all_neigbours_dist_1(int to_read, int * neighbouring_bucket
 __global__ void find_all_neigbours_dist_2_odd(int to_read, int * neighbouring_buckets, int nbits, int * bucket ) ;
 
 __global__ void find_all_neigbours_dist_2_pair(int to_read, int * neighbouring_buckets, int nbits, int * bucket )  ; 
+
+
+__global__ void brute_2nn(float4 * sorted, int * index_r, int * index_q, int4 * start_size, des_t * r_p, des_t *  q_p) ; 
+
+__device__ inline float4 set_sorted(float4 sorted , float4 min); 
+
+__device__ inline void best_in_warp(float4  &min_2); 

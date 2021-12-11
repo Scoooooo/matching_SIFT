@@ -21,10 +21,13 @@
 #define PREFER_CPU 0
 
 #if PREFER_CPU == 0
+
+#include <thrust/copy.h>
 #include <thrust/scan.h>
 #include <thrust/device_vector.h>
 #include <thrust/host_vector.h>
 #include <thrust/sort.h>
+#include <thrust/fill.h>
 #endif
 int number_of_dots  = 0 ; 
 
@@ -672,13 +675,7 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     thrust::constant_iterator<int> array_of_ones(1) ; 
 
     // given bucket n gives start index  
-
     int *bucket_start_r, *bucket_start_q;
-    // 2 ** nbits * size int 
-    // [0 -> 2 ** nibits ]  
-    //  
-    // use map for now but needs to be changed  
-    std::unordered_map <int, int> map_r, map_q ; 
 
     // dot from random vector to q / r points 
     float * dot_res_r, * dot_res_q;
@@ -712,6 +709,8 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     cudaMallocManaged((void **)&buckets_q, sizeof(int) * n_q);
     cudaMallocManaged((void **)&code_by_index_q, sizeof(int) * n_q);
 
+    //fill sorted with MAXFLOAT 
+    thrust::fill(thrust::device,(float * )sorted,(float*)( sorted + n_q * 4), MAXFLOAT) ; 
 //    float a = 1.0f;
 //    float b = 1.0f;
 //    cublasHandle_t handle;
@@ -756,50 +755,22 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     for (int L = 0; L < l; L++)
     {
         // memsetstuff
-        cudaMemset(index_r, 0, sizeof(int) * n_r );
-        cudaMemset(index_q, 0, sizeof(int) * n_q );
-
-        cudaMemset(code_r, 0, sizeof(int) * n_r );
-        cudaMemset(code_q, 0, sizeof(int) * n_q);
-        
-        cudaMemset(buckets_r_size, 0, sizeof(int) * n_r );
-        cudaMemset(buckets_q_size, 0, sizeof(int) * n_q );
-
-        cudaMemset(buckets_r, 0, sizeof(int) * n_r );
-        cudaMemset(buckets_q, 0, sizeof(int) * n_q );
-
-        cudaMemset(code_by_index_r, 0, sizeof(int) * n_r );
-        cudaMemset(code_by_index_q, 0, sizeof(int) * n_q );
-
         cudaMemset(neighbouring_buckets, 0, sizeof(int) * n_q * size_bucket);
-        // todo make kernel to set - 1  
-      //  for (int i = 0; i < (2 << nbits); i++)
-      //  {
-      //      bucket_start_r[i] = -1;
-      //  }
+        // set index arrays  
+        thrust::copy(index_copy,index_copy+ n_q,index_q) ;  
+        thrust::copy(index_copy,index_copy+ n_r,index_r) ;  
 
-        for (int i = 0; i < n_q; i++)
-        {
-            index_q[i] = i ;      
-        }
-        for (int i = 0; i < n_r; i++)
-        {
-            index_r[i] = i ;      
-        }
-        
-        map_r.clear() ; 
-        map_q.clear() ; 
-        // make random vectors
+        // to do random vectos gpu curand / thrust 
+       // make random vectors
         for (int i = 0; i < nbits; i++)
         {
             make_vec(128, rand_array[i]);
         }
-        //should use thusrt/cublas !! 
+        // to do cublas to dot vectors 
         // dot random vectors with n_r
         dim3 grid_dot_r(n_r, nbits, 1) ;
         dim3 block_dot_r(32, 1, 1) ;   
         dot_gpu<<<grid_dot_r, block_dot_r>>>(rand_array, r_points, dot_res_r); 
-
 
         // set bit for code_r 
         dim3 grid_bit_r(n_r,1,1) ; 
@@ -817,13 +788,7 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         set_bit<<<grid_bit_q, block_bit_q>>>(code_q, nbits, dot_res_q) ; 
 
         
-        // index code 
-        // code[index[0 -> i]] = 0 ...... n 
-        // want to sort index 
-        // sort bucket by index  
-            //thrust pointers for r 
-        
-        cudaDeviceSynchronize() ; 
+
         // sort and reduce for r buckets  
         thrust::sort(ptr_r_index, ptr_r_index + n_r, code_r_sort );
         thrust::gather(thrust::device, ptr_r_index, ptr_r_index + n_r, ptr_code_r, ptr_code_by_index_r) ; 
@@ -834,47 +799,11 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         thrust::gather(thrust::device, ptr_q_index, ptr_q_index + n_q, ptr_code_q, ptr_code_by_index_q) ; 
         auto new_end_q = thrust::reduce_by_key( ptr_code_by_index_q, ptr_code_by_index_q+ n_q, array_of_ones, ptr_buckets_q, ptr_buckets_q_size) ; 
 
-        cudaDeviceSynchronize();
         int n_r_buckets = new_end_r.first - (ptr_buckets_r) ; 
         int n_q_buckets = new_end_q.first - (ptr_buckets_q) ; 
-//        for (int i = 0; i < size_c_d_r; i++)
-//        {
-//            printf("bucket %i size = %i  \n", buckets_r[i],buckets_r_size[i]) ; 
-//        }
-//
-//    #if PREFER_CPU == 0
-//        thrust::device_ptr<int> ptr = thrust::device_pointer_cast(index_r);
-//        thrust::sort(thrust::device, ptr, ptr + n_r, code_r_sort );
-//    #else
-//        cudaDeviceSynchronize();
-//        int* ptr = index_r;
-//        std::sort( ptr, ptr + n_r, tc );
-//    #endif
-
-        // thrust unique to get only  the buckets
-        // code[index[x]] ->  
 
 
-
-        // set bucket start  
-        // could I use hash maps ??? 
-        // 
-        for (int i = 0; i < n_r; i++)
-        {
-            if(map_r.find(code_r[index_r[i]]) == map_r.end())
-            {
-                map_r.insert({code_r[index_r[i]], i}) ; 
-            }
-       }
-         for (int i = 0; i < n_q; i++)
-        {
-            if(map_q.find(code_q[index_q[i]]) == map_q.end())
-            {
-                map_q.insert({code_q[index_q[i]], i}) ; 
-            }
-       }
-        
-
+        // todo fix dist only need dist one  
         if(max_dist > 0){
              
             dim3 grid_bucket(n_q_buckets, 1, 1) ; 
@@ -896,132 +825,61 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
                     find_all_neigbours_dist_2_pair<<<grid_bucket, block_bucket>>>(1, neighbouring_buckets, nbits, code_q) ; 
                 }
             }
-        
         }
         cudaDeviceSynchronize();
 
-        // will have two arrays an array of all q buckets and all neigbours of each bucket 
-        // all q points in each of the q buckest need to be compared with all the r points in all the neigbours buckets for each q bucket    
-        // use multiple steams to balance workload 
-        // will send in a list of q and r points + size of each of them.  
-        // make the list for each kernel call on cpu / gpu ? 
-
-        // sort as we compare or sort after ? 
-        // problems with sorting after -> do not know the size of the array we need, writing to the array will need some kind of sync 
-        // problems with sortgin before we are done with all the dots -> we will read the same values form global memory many time, will probly be slower. 
-
-        // code_q[i] == i 
-        // code_q[index[i]] -> sorted array
-
-        // bucket_q -> code_q -> q_points
-        // 0101 -> code_q[index[0101] -> slutt av bucket] -> q_point 
-        // bucket_r -> code_r -> r_points 
-        // 0101 -> code_r[index[0101] -> slutt av bucket] -> r_point
-
-        // q -> r_points   
-        if( L == 0)
-        {
-            for (int i = 0; i < n_q; i++)
-            {
-                sorted[i].w = MAXFLOAT;
-                sorted[i].x = MAXFLOAT;
-                sorted[i].y = MAXFLOAT;
-                sorted[i].z = MAXFLOAT;
-            }
-        }
-        //number of sms 
-       // cudaDeviceProp deviceProp;
-       // cudaGetDeviceProperties(&deviceProp, 0); 
-       // std::cout << deviceProp.multiProcessorCount;       
+       
         
-        
-        // dont need to use map_r or map_q 
         int count_r = 0 ;  
         int count_q = 0 ;  
 
         int start_index_r = 0 ; 
         int start_index_q = 0 ; 
+        
+        // what our each block in our kernel needs is 
+        // number of r/q points to read 
+        // start index 
+        // index of each q point into the soreted array 
+
+        // we can use block number to index into the array
+
+        int4 * index_size_start ; 
+        cudaMallocManaged((void **) &index_size_start, sizeof(int) * n_q_buckets) ; 
+        int counter = 0 ;  
+        // can this be done on gpu ? threads ? todo 
         while (count_q < n_q_buckets && count_r < n_r_buckets)
         {
             if(buckets_q[count_q] == buckets_r[count_r])
             {
-                // start kernel 
-                // as long as buckets_r_size is under 93 we can read all of them into shared memory 48000 / (128 * 4) == 93 ish   
-                // need to balance buckets_r_size and buckets_q_size hmm 
-            //     printf("%i == %i bucket r size = %i bucket q size = %i  \n" , buckets_r[count_r], buckets_q[count_q], buckets_r_size[count_r],buckets_q_size[count_q]) ; 
-            //    for (int i = 0; i < buckets_r_size[count_r]; i++)
-            //    {
-            //        printf("%i = %i asd \n",i , code_r[index_r[start_index_r + i]]) ; 
-            //    }
-            //    printf("\n") ; 
-            //    for (int i = 0; i < buckets_q_size[count_q]; i++)
-            //    {
-            //        printf("%i = %i asd \n",i , code_q[index_q[start_index_q + i]]) ; 
-            //    }
-            //    printf("\n")  ; 
-                  
-                dim3 brute_grid(1, 1, 1)  ;  
-                dim3 brute_bucket(32, 3, 1) ; 
-                //brute_2nn<<<brute_grid, brute_bucket>>>(sorted, index_r, index_q, buckets_r_size[count_r], buckets_q_size[count_q], start_index_r, start_index_q ,r_points, q_points) ; 
-                cudaDeviceSynchronize() ; 
+                index_size_start[counter].w = start_index_q ; 
+                index_size_start[counter].x = start_index_r ; 
+                index_size_start[counter].y = buckets_q_size[count_q] ; 
+                index_size_start[counter].z = buckets_r_size[count_r] ; 
+                 
                 start_index_q += buckets_q_size[count_q]; 
                 start_index_r += buckets_r_size[count_r]; 
                 count_r ++ ; 
                 count_q ++ ; 
+                counter ++ ; 
+
             }
             else if( buckets_q[count_q] < buckets_r[count_r])
             {
-//                printf("%i > %i \n" , buckets_r[count_r], buckets_q[count_q]) ; 
-                
                 start_index_q += buckets_q_size[count_q]; 
                 count_q ++ ; 
             }
             else
             {
-               // printf("%i < %i \n" , buckets_r[count_r], buckets_q[count_q]) ; 
-
                 start_index_r += buckets_r_size[count_r]; 
                 count_r ++ ; 
             }
         }
-        
-       
-       
-       
-        for (int i = 0; i < n_q_buckets; i++)
-        {
-           //search_bucket(sorted[i], code_q[i], bucket_start_r[code_q[i]], code_r, index, r_points, q_points, n_r, i) ; 
-            auto it_r  = map_r.find(buckets_q[i]) ; 
-            auto it_q = map_q.find(buckets_q[i]) ; 
-            if(it_r != map_r.end() && it_q != map_q.end())
-            {
-                for (int ii = 0; ii < buckets_q_size[i]; ii++)
-                {
-                    int val = it_r->second ; 
-                    search_bucket(sorted[index_q[it_q->second + ii]], buckets_q[i], val, code_r, index_r, r_points, q_points, n_r, index_q[it_q->second + ii]) ; 
-                }
-            }
-            
-          //  for (int ii = 0; ii < size_bucket; ii++)
-          //  {
-          //      int bucket_n = neighbouring_buckets[size_bucket * i + ii]  ; 
-//        //        printf("int %i = %i \n", ii, iii); 
-          //     // search_bucket(sorted[i], iii, bucket_start_r[iii], code_r, index, r_points, q_points, n_r, i) ; 
-          //  auto it_r  = map_r.find(bucket_n) ; 
-          //  auto it_q = map_q.find(bucket_n) ; 
-          //  if(it_r != map_r.end() && it_q != map_q.end())
-          //  {
-          //      int x = it_q->second ; 
-          //      while (x < n_q && code_q[index_q[x]] == bucket_n)
-          //      {
-          //          int val = it_r->second ; 
-          //          search_bucket(sorted[index_q[x]], bucket_n, it_r->second, code_r, index_r, r_points, q_points, n_r, index_q[x]) ; 
-          //          x++ ; 
-          //      }
-          //  }    
-          // }
-        }
-    } 
+           
+        dim3 brute_grid(counter, 1, 1)  ;  
+        dim3 brute_bucket(32, 4, 1) ; 
+        brute_2nn<<<brute_grid, brute_bucket>>>(sorted, index_r, index_q, index_size_start ,r_points, q_points) ; 
+        cudaFree(index_size_start) ; 
+   } 
     printf("needed to compare %i points in lsh \n", number_of_dots) ; 
 }
 
@@ -1080,61 +938,108 @@ __device__ inline float4 set_sorted(float4 sorted , float4 min)
     return sorted ; 
 }
 // called with 
-// grid, 1, 1, 1 
-// block 32, 1 - 32, 1 
-__global__ void brute_2nn(float4 * sorted, int * index_r, int * index_q, int size_r, int size_q, int start_r, int start_q, des_t * r_p, des_t *  q_p) 
+// grid, y, 1, 1 
+// block 32, x, 1 
+__global__ void brute_2nn(float4 * sorted, int * index_r, int * index_q, int4 * start_size, des_t * r_p, des_t *  q_p) 
 {
-    float4 temp ; 
+    // use a int for now to test 
+    int r_size = 4 ; 
+    int4 start_size_q_r = start_size[blockIdx.x] ; 
 
-    __shared__ float4 r_points[32 * 92] ;
-
-    // readning in the part of index_r we need to shared first ?? todo 
-    // read r points to shared  
-    __syncthreads() ; 
-    for (int i = threadIdx.y; i < size_r; i += blockDim.y) 
+    __shared__ float4 r_points[32 * 4]   ;
+    // dose not need to be shared hmm 
+    float4 best ; 
+     
+    // for each q point 
+    for (int i = 0; i < start_size_q_r.y; i += r_size) 
     {
-        r_points[threadIdx.x + i * 32] = ((float4 * )r_p[index_r[start_r + i]])[threadIdx.x ];
-    }
-    __syncthreads() ; 
-    for (int i = threadIdx.y; i < size_q; i += blockDim.y) 
-    {
-
-        temp.x = MAXFLOAT ;  temp.y = MAXFLOAT ;  temp.z = MAXFLOAT ;  temp.w = MAXFLOAT ; 
-        float4 a = ((float4 * )q_p[index_q[start_q + i]])[threadIdx.x ]; 
-        for(int ii = 0; ii < size_r; ii ++)
+        float4 a ; 
+        int count = 0 ; 
+        // set shared value and read in q point 
+        if((i + threadIdx.y) < start_size_q_r.y)
         {
-            float res = 0.f ; 
-            float4 b = r_points[threadIdx.x + ii * 32]  ; 
+            // read new q point 
+            a = ((float4 * )q_p[index_q[start_size_q_r.w + (threadIdx.y + i)]])[threadIdx.x]; 
+            best.x = MAXFLOAT ; 
+            best.y = MAXFLOAT ; 
+        } 
+        // for every r point find dist to q points we have read in  
+        for (int ii = 0; ii < start_size_q_r.z ; ii += r_size)
+        {
+            // read to shared ? 
+            __syncthreads(); 
+            if((ii + threadIdx.y) < start_size_q_r.z)
+            {
+                r_points[32 * threadIdx.y + threadIdx.x] = ((float4 * )r_p[index_r[start_size_q_r.x + (threadIdx.y + ii)]])[threadIdx.x];  
+                // add if stamtemnt and cal dist for this here ?_? maybe
+            }
+            __syncthreads() ; 
+            if((i + threadIdx.y) < start_size_q_r.y)
+            {
+                int iii = 0 ; 
+                while (((iii + ii) < start_size_q_r.z ) && iii < 4)
+                {
+                    
+                    float res = 0.f ; 
+                    float4 b = r_points[threadIdx.x + iii * 32]  ; 
+                    float4 c ; 
+                    c.x = a.x - b.x ; 
+                    c.y = a.y - b.y ; 
+                    c.z = a.z - b.z ; 
+                    c.w = a.w - b.w ; 
 
-            float4 c ; 
-            c.x = a.x - b.x ; 
-            c.y = a.y - b.y ; 
-            c.z = a.z - b.z ; 
-            c.w = a.w - b.w ; 
+                    res =
+                    (c.x )*(c.x ) + (c.y )*(c.y ) +
+                    (c.z )*(c.z ) + (c.w )*(c.w )  ;  
+                    reduce(res) ;    
+                    res = __shfl_sync(0xFFFFFFFF, res, 0 ) ;
 
-            res +=
-            (c.x )*(c.x ) + (c.y )*(c.y ) +
-            (c.z )*(c.z ) + (c.w )*(c.w )  ;  
-            reduce(res) ; 
+                    // set value 
+                    if(threadIdx.x == count)
+                    {
+                        if(best.x == MAXFLOAT)
+                        {
+                            best.x = res ;  
+                            best.z = index_r[iii + start_size_q_r.x + ii] ; 
+                        }
+                        else
+                        {
+                            best.y = res ;  
+                            best.w = index_r[iii + start_size_q_r.x + ii] ; 
+                        }
+                    } 
 
-            // hmmmmmm 
+                    iii ++ ; 
+                    count +=1 ;  
+
+                    if(count == 32)
+                    {
+                        best_in_warp(best) ; 
+                        count = 0 ; 
+                        if(threadIdx.x == 0)
+                        {
+                            sorted[index_q[start_size_q_r.w + (threadIdx.y + i)]] = set_sorted(sorted[index_q[start_size_q_r.w + (threadIdx.y + i)]], best ); 
+                        }
+                        best.x = MAXFLOAT ;
+                        best.y = MAXFLOAT ;  
+                    }
+                }
+            }
+            __syncthreads() ; 
+        }
+
+        if((i + threadIdx.y) < start_size_q_r.y)
+        {
+            best_in_warp(best) ; 
+            count = 0 ; 
             if(threadIdx.x == 0)
             {
-                set_temp(res, temp, index_r[ii + start_r]) ; 
+                sorted[index_q[start_size_q_r.w + (threadIdx.y + i)]] = set_sorted(sorted[index_q[start_size_q_r.w + (threadIdx.y + i)]], best ); 
             }
+            best.x = MAXFLOAT ;
+            best.y = MAXFLOAT ;  
         }
-        // hmm
-        if(threadIdx.x == 0)
-        {
-            sorted[index_q[start_q + i]] =  set_sorted(sorted[index_q[start_q + i]], temp) ; 
-        }
-    }
-   
-// then it reads its own q point 
-
-// finds dist for its own q point to all r points 
-
-// 
+    }   
 }
 
 
@@ -1170,3 +1075,36 @@ void search_bucket(float4 &min, int bucket, int start, int * code, int * index, 
         i ++ ; 
     }
 }
+//find smallest vlaue in the warp and index  
+__device__ inline void best_in_warp(float4  &min_2)
+{    
+    for (int i = 16; i > 0; i/= 2)
+    {          
+        float x_dist = __shfl_down_sync( 0xffffffff, min_2.x, i );
+        float y_dist = __shfl_down_sync( 0xffffffff, min_2.y, i );
+        float w_value = __shfl_down_sync( 0xffffffff, min_2.w, i );
+        float z_value = __shfl_down_sync( 0xffffffff, min_2.z, i );
+        if(x_dist < min_2.x)
+        {
+            min_2.y = min_2.x ; 
+            min_2.x = x_dist ;  
+                
+            min_2.w = min_2.z ; 
+            min_2.z = z_value;  
+        }
+        else{
+            if(x_dist < min_2.y)
+            {
+                min_2.y = x_dist ; 
+                min_2.w = z_value;  
+                continue ; 
+            }
+        } 
+        if(y_dist < min_2.y)
+        {
+                min_2.y = y_dist ; 
+                min_2.w = w_value;  
+        }
+    }
+}
+
