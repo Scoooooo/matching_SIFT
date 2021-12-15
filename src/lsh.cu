@@ -331,10 +331,7 @@ void make_vec(int dim, des_t &vec)
     for (size_t i = 0; i < dim; i++)
     {
     vec[i] = (static_cast<float>(rand()) / static_cast<float>(RAND_MAX)) -0.5 ;
-
     } 
-   
-    
 }
 
 float dot(des_t v1, des_t v2)
@@ -457,8 +454,12 @@ __global__ void dot_gpu(des_t *  rand, des_t * points, float *dot)
     
     float res = 0.f ; 
     float4 a = ((float4 * )points[blockIdx.x])[threadIdx.x ];
-    float4 b = ((float4 * )rand[blockIdx.z * gridDim.y + blockIdx.y])[threadIdx.x]; 
-
+    //float4 b = ((float4 * )rand[blockIdx.z * gridDim.y + blockIdx.y])[threadIdx.x]; 
+    float4 b ; 
+    b.x =  ((float *) rand) [(threadIdx.x * 4) * blockDim.y + blockIdx.y]; 
+    b.y =  ((float *) rand) [(threadIdx.x * 4 + 1) * blockDim.y + blockIdx.y]; 
+    b.z =  ((float *) rand) [(threadIdx.x * 4 + 2) * blockDim.y + blockIdx.y]; 
+    b.w =  ((float *) rand) [(threadIdx.x * 4 + 3) * blockDim.y + blockIdx.y]; 
     res +=
         (a.x )*(b.x ) + (a.y )*(b.y ) +
         (a.z )*(b.z ) + (a.w )*(b.w )  ;  
@@ -711,16 +712,17 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
 
     //fill sorted with MAXFLOAT 
     thrust::fill(thrust::device,(float * )sorted,(float*)( sorted + n_q * 4), MAXFLOAT) ; 
-//    float a = 1.0f;
-//    float b = 1.0f;
-//    cublasHandle_t handle;
-//    cublasCreate(&handle);
+
+    float a = 1.0f;
+    float b = 0.0f;
+    cublasHandle_t handle;
+    cublasCreate(&handle);
 //      for (int i = 0; i < nbits; i++)
 //        {
 //            make_vec(128, rand_array[i]);
 //        }
 //   
-//    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, nbits, n_r, 128, &a, (float *)rand_array, nbits, (float *)r_points, 128, &b, dot_res_r, nbits);
+    //cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, nbits, n_r, 128, &a, (float *)rand_array, nbits, (float *)r_points, 128, &b, dot_res_r, nbits);
 //    
 //    /**
 //     * rand_arraay = L*nbitsX128
@@ -736,11 +738,10 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
 //      printf("%f compare \n", test_dot(((float * )rand_array + i), r_points[i])) ; 
 //  }
 
-
-   
     IndexCompare code_r_sort(index_copy, code_r);
     IndexCompare code_q_sort(index_copy, code_q);
    //thrust pointers for q 
+   // todo check if we need thrust pointers 
     thrust::device_ptr<int> ptr_q_index = thrust::device_pointer_cast(index_q);
     thrust::device_ptr<int> ptr_code_by_index_q = thrust::device_pointer_cast(code_by_index_q);
     thrust::device_ptr<int> ptr_code_q = thrust::device_pointer_cast(code_q);
@@ -770,8 +771,16 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         // dot random vectors with n_r
         dim3 grid_dot_r(n_r, nbits, 1) ;
         dim3 block_dot_r(32, 1, 1) ;   
-        dot_gpu<<<grid_dot_r, block_dot_r>>>(rand_array, r_points, dot_res_r); 
+      //  dot_gpu<<<grid_dot_r, block_dot_r>>>(rand_array, r_points, dot_res_r); 
 
+        cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, nbits, n_r, 128, &a, (float *)rand_array, nbits, (float *)r_points, 128, &b, dot_res_r, nbits);
+
+        cudaDeviceSynchronize() ; 
+        for (int i = 0; i < 100; i++)
+        {
+            printf("asd = %f \n", dot_res_r[i]) ; 
+        }
+        
         // set bit for code_r 
         dim3 grid_bit_r(n_r,1,1) ; 
         dim3 block_bit_r(nbits,1,1) ; 
@@ -780,7 +789,9 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         // dot random vectors with q
         dim3 grid_dot_q(n_q, nbits, 1) ;
         dim3 block_dot_q(32, 1, 1) ;   
-        dot_gpu<<<grid_dot_q, block_dot_q>>>(rand_array, q_points, dot_res_q); 
+//        dot_gpu<<<grid_dot_q, block_dot_q>>>(rand_array, q_points, dot_res_q); 
+
+       cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, nbits, n_q, 128, &a, (float *)rand_array, nbits, (float *)q_points, 128, &b, dot_res_q, nbits);
 
         // set bit for hash values for code_q 
         dim3 grid_bit_q(n_r,1,1) ; 
@@ -826,10 +837,7 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
                 }
             }
         }
-        cudaDeviceSynchronize();
 
-       
-        
         int count_r = 0 ;  
         int count_q = 0 ;  
 
@@ -842,7 +850,6 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
         // index of each q point into the soreted array 
 
         // we can use block number to index into the array
-
         int4 * index_size_start ; 
         cudaMallocManaged((void **) &index_size_start, sizeof(int) * n_q_buckets) ; 
         int counter = 0 ;  
