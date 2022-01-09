@@ -1,13 +1,125 @@
-#include <nvToolsExt.h> 
-#include <sys/syscall.h>
-#include <unistd.h>
-
-#include <iostream>
-#include <string>
+#include "curand_kernel.h"
 #include "knn_brute.h"
-int des_t_dim = 128 ;
+#include <string>
+#include "cublas_v2.h"
+#include "lsh.h"
+#include "knn_brute.h"
+#include "helper.h"
+#include <algorithm>
+
+// thrust 
+#include <thrust/reduce.h>
+#include <thrust/gather.h>
+#include <thrust/execution_policy.h>
+#include <thrust/iterator/constant_iterator.h>
+#include <thrust/iterator/counting_iterator.h>
+#include <thrust/pair.h>
+#include <thrust/copy.h>
+#include <thrust/scan.h>
+#include <thrust/device_vector.h>
+#include <thrust/host_vector.h>
+#include <thrust/sort.h>
+#include <thrust/fill.h>
 // gpu brute force 2nn 
 // takes pointer with data on device as input, sorted output should also be on devcie or just manged 
+struct abs2 {
+    __host__ __device__ float operator()(const float &x) const { return x * x; }
+};
+
+__global__ void assemble_final_result(const float * __restrict__ d_norms_x_2, const float * __restrict__ d_norms_y_2, float * __restrict__ d_dots,
+                                      const int NX, const int NY) {
+
+    const int i = threadIdx.x + blockIdx.x * gridDim.x;
+    const int j = threadIdx.y + blockIdx.y * gridDim.y;
+
+    if ((i < NY) && (j < NX)) d_dots[i * NX+ j] = d_norms_x_2[j] + d_norms_y_2[i] - 2 * d_dots[i * NX+ j];
+
+}
+
+void cublas_2nn_brute(des_t * q_points, des_t * r_points, int q_n, int r_n, float4  * sorted)
+{
+// steps ||x,y||^2 = ||x||^2 + ||y||^2 - 2x*y^T
+// notes cublas works in colum major,, c++ is in row major :(  
+// meaning our input q_points and r_poins are already transpoed 
+// first we need to get the norms of x and y 
+// then we need to multiply every element with itself 
+// then we need to 
+    const int Ndims = 128;        // --- Number of rows
+    const int NQ    = q_n;        // --- Number of columns
+    const int NR    = r_n;        // --- Number of columns
+
+    //cublas
+    cublasHandle_t handle;
+    cublasCreate(&handle);
+    float a = 1.f;
+    float b = 0.f;
+ 
+    
+    // norm of q 
+   // thrust::device_vector<float> q_N(NX);
+    float * q_N; 
+    cudaMallocManaged((void **)&q_N, q_n * sizeof(float)) ; 
+
+    thrust::device_vector<float> q_2(Ndims * NQ);
+    thrust::transform((float * )q_points, (float * )q_points + q_n, q_2.begin(), abs2());
+    thrust::device_vector<float> d_ones(Ndims, 1.f);
+
+    cublasSgemv(handle, CUBLAS_OP_N, Ndims, NQ, &a, thrust::raw_pointer_cast(q_2.data()), Ndims, 
+                               thrust::raw_pointer_cast(d_ones.data()), 1, &b, q_N, 1);
+   // cublasSgemv(handle, CUBLAS_OP_N, 1, q_n, 128, &a, thrust::raw_pointer_cast(d_ones.data()), 1, (float *)q_points, 128, &b,  q_N,1 );
+
+    // norm of r 
+//    thrust::device_vector<float> r_N(NX);
+    float * r_N; 
+    cudaMallocManaged((void **)&r_N, r_n * sizeof(float)) ; 
+
+
+    thrust::device_vector<float> r_2(Ndims * NR);
+    thrust::transform((float * )r_points, (float * )r_points + r_n, r_2.begin(), abs2());
+
+    cublasSgemv(handle, CUBLAS_OP_N, Ndims, NR, &a, thrust::raw_pointer_cast(r_2.data()), Ndims, 
+                               thrust::raw_pointer_cast(d_ones.data()), 1, &b, r_N, 1);
+    //cublasSgemv(handle,  CUBLAS_OP_N, 1, r_n, 128, &a, thrust::raw_pointer_cast(d_ones.data()), 1, (float *)r_points, 128, &b,  r_N,1 );
+//
+    /***********************************/
+    /* CALCULATING THE SCALAR PRODUCTS */
+    /***********************************/
+//  thrust::device_vector<float> d_dots(NX * NY);
+// array of the distances between all q and r points 
+    float * dev_dist_f ; 
+    cudaMallocManaged((void **)&dev_dist_f, q_n* r_n * sizeof(float)) ; 
+//
+//
+    cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, NQ, NR, Ndims, &a,
+                               (float * )q_points, Ndims, (float * )r_points, Ndims, &b,
+                               dev_dist_f, NQ);
+    float * dev_dist ; 
+    //array of dist from each q point to every r point 
+    cudaMallocManaged((void **)&dev_dist, q_n* r_n * sizeof(float)) ; 
+
+    dim3 grid_size(q_n, r_n, 1) ;
+    dim3 block_size(32, 1, 1) ;   
+
+    //fill in the dist array
+    sqrEuclidianDist<<<grid_size, block_size>>>(q_points,r_points, dev_dist);
+    
+    cudaDeviceSynchronize() ; 
+    for (size_t i = 0; i < 10; i++)
+    {
+
+        printf("%f \n", r_N[i]); 
+        printf("%f \n", q_N[i]); 
+        printf("%f \n", dev_dist_f[i]); 
+        printf("%f == %f\n", dev_dist[i], r_N[i] + q_N[i] - 2*dev_dist_f[i]); 
+    }
+    
+
+
+    cudaFree(r_N); 
+    cudaFree(q_N); 
+    cudaFree(dev_dist_f); 
+}
+
 void device_brute(des_t * q_points, des_t * r_points, int q_n, int r_n, float4  * sorted)
 {
     // array of the distances between all q and r points 
@@ -22,7 +134,6 @@ void device_brute(des_t * q_points, des_t * r_points, int q_n, int r_n, float4  
     sqrEuclidianDist<<<grid_size, block_size>>>(q_points,r_points, dev_dist);
     cudaDeviceSynchronize();
 
-    // 
     dim3 gridSize(q_n,1,1) ;
     dim3 blockSize(32,1,1) ; 
 
@@ -82,92 +193,11 @@ __device__ inline void best_in_warp(float4  &min_2)
         } 
         if(y_dist < min_2.y)
         {
-                min_2.y = y_dist ; 
-                min_2.w = w_value;  
+            min_2.y = y_dist ; 
+            min_2.w = w_value;  
         }
     }
 }
-
-
-// 32 threads for each dist_array using shlf  
-//__global__ void min_2_2(float *  dist, int size ,float2 * sorted)
-//{
-//    float2 min_2 ;  
-//    min_2.x = MAXFLOAT; 
-//    min_2.y = MAXFLOAT; 
-//   
-//    int offset = (threadIdx.y + blockIdx.x * 32) * size ;
-//
-//    for (int i = 0; (i + threadIdx.x) < size; i += 32)
-//    {
-//        if(dist[i + offset + threadIdx.x] < min_2.x)
-//        {
-//            min_2.y = min_2.x ; 
-//            min_2.x = dist[i + offset + threadIdx.x] ;  
-//        }
-//        else{
-//            if(dist[i + offset + threadIdx.x] < min_2.y)
-//            {
-//                min_2.y = dist[i + offset + threadIdx.x] ;  
-//            }
-//        }
-//    }
-//
-//    best_in_warp(min_2) ;
-//
-//    if(threadIdx.x == 0)
-//    { 
-//        sorted[threadIdx.y + blockIdx.x * 32] = min_2 ; 
-//    }
-//}
-
-// reading float vs float2 3 4 ?  
-// 32 wraps per dist  
-//__global__ void min_2_3(float *  dist, int size ,float2 * sorted)
-//{
-//    float2 min_2 ;  
-//    min_2.x = MAXFLOAT; 
-//    min_2.y = MAXFLOAT; 
-//   
-//    int offset = (blockIdx.x) * size + (threadIdx.y * 32) ; 
-//    if(threadIdx.x == 0){
-//        //printf("offset %d  \n", offset) ; 
-//    
-//    }
-//    for (int i = 0; (i + threadIdx.x) < size ; i+= 1024)
-//    {
-//        if(dist[i + offset + threadIdx.x] < min_2.x)
-//        {
-//            min_2.y = min_2.x ; 
-//            min_2.x = dist[i + offset + threadIdx.x] ;  
-//        }
-//        else{
-//            if(dist[i + offset + threadIdx.x] < min_2.y)
-//            {
-//                min_2.y = dist[i + offset + threadIdx.x] ;  
-//            }
-//        }
-//    }
-//    // find best in warp 
-//    best_in_warp(min_2) ; 
-//    // find best in all the 32 warps  
-//    __shared__ float4 best[32] ; 
-//    if(threadIdx.x == 0)
-//    {
-//        best[threadIdx.y] = min_2 ;
-//    }
-//    __syncthreads() ; 
-//
-//    if(threadIdx.y == 0){
-//        min_2 = best[threadIdx.x] ; 
-//        best_in_warp(min_2) ; 
-//    }
-//    
-//    if(threadIdx.y == 0 && threadIdx.x == 0)
-//    {
-//        sorted[blockIdx.x] = min_2 ; 
-//    }
-//}
  
 // x warps per dist 
 __global__ void min_dist(float *  dist, int size ,float4 * sorted)

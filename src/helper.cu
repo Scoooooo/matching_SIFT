@@ -35,7 +35,8 @@ void make_rand_vector(int dim, des_t &vec)
 {
      for (size_t i = 0; i < dim; i++)
         {
-            vec[i] = static_cast<float>(rand())  ;
+        
+            vec[i] =static_cast<float>(rand()); 
     
         }
         float sum = 0 ; 
