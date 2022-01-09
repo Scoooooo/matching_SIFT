@@ -1,4 +1,4 @@
-#include "knn_brute.h"
+typedef  float des_t[128];  
 
 double start_timer() ; 
 void print_time(double start, const char * s) ; 
