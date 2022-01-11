@@ -8,7 +8,7 @@ __device__ inline void reduce(float &var);
 __global__ void dot_gpu(des_t *  rand, des_t * points, float *dot); 
 __global__ void set_bit(int *buckets, int nbits, float * dot); 
 
-void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l, int max_dist) ; 
+void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l, int max_dist, cublasHandle_t handle) ; 
 
 __global__ void find_all_neigbours_dist_1(int to_read, int * neighbouring_buckets, int nbits, int * bucket, int n_buckets ) ; 
 

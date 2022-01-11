@@ -32,14 +32,15 @@ void test()
 {
     int dim = 128;
     int size_q = 10000;
-    int size_r = 10000;
+    int size_r = 8000;
 
     des_t *q_points;
     des_t *r_points;
 
     float4 *sorted_lsh;
     float4 *sorted_2nn;
-
+    cublasHandle_t handle;
+    cublasCreate(&handle);
     cudaMallocManaged((void **)&q_points, size_q * sizeof(des_t));
     cudaMallocManaged((void **)&r_points, size_r * sizeof(des_t));
 
@@ -52,7 +53,8 @@ void test()
 
     double s = start_timer();
     //   cudaProfilerStart();
-    lsh_test(q_points, r_points, size_q, size_r, sorted_lsh, 20, 20, 0);
+    lsh_test(q_points, r_points, size_q, size_r, sorted_lsh, 20, 20, 0, handle);
+   // device_brute(q_points,r_points,size_q,size_r, sorted_lsh) ;
     cudaDeviceSynchronize() ;
     //    cudaProfilerStop() ;
     //gpu_lsh(q_points, r_points, size_q, size_r, sorted_host, 4, 4, 2);
@@ -60,7 +62,7 @@ void test()
 
     s = start_timer() ; 
     printf("brute needs to compare %i points \n", size_q * size_r ) ; 
-    device_brute(q_points,r_points,size_q,size_r, sorted_2nn) ;
+    cublas_2nn_brute(q_points,r_points,size_q,size_r, sorted_2nn, handle) ;
     print_time(s, "gpu brute") ; 
     int failed = 0 ; 
     // see how many poins lsh got right 

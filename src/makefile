@@ -1,7 +1,7 @@
 IDIR =../include
 CC=nvcc $(LINK) 
 CFLAGS=-I$(IDIR)
-LINK=-lcublas -lcurand 
+LINK=-lcublas 
 
 ODIR=obj
 LDIR =../lib

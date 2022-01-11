@@ -399,7 +399,7 @@ __global__ void brute_2nn(float4 * sorted, int * index_r, int * index_q, int4 * 
 
 
 
-void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l, int max_dist)
+void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l, int max_dist, cublasHandle_t handle) 
 {  
     // see how much memory we have  
     size_t free_byte ;
@@ -489,8 +489,7 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     float a = 1.0f;
     float b = 0.0f;
     // todo take handle as input 
-    cublasHandle_t handle;
-    cublasCreate(&handle);
+    
 
     IndexCompare code_r_sort(index_copy, code_r);
     IndexCompare code_q_sort(index_copy, code_q);
