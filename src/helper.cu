@@ -31,7 +31,7 @@ void compare_int(int x, int y)
 } 
 
 // make random data 
-void make_rand_vector(int dim, des_t &vec)
+void make_rand_vector(int dim, des_t_f &vec)
 {
      for (size_t i = 0; i < dim; i++)
         {
@@ -51,11 +51,44 @@ void make_rand_vector(int dim, des_t &vec)
         } 
 }
 
-void make_rand_vec_array(int dim, int size, des_t *array)
+void make_rand_vec_array(int dim, int size, des_t_f *array)
 {
-    des_t *arr = (des_t *)array;
+    des_t_f *arr = (des_t_f *)array;
     for (size_t i = 0; i < size; i++)
     {
         make_rand_vector(dim, arr[i]);
+    }
+}
+// make random data 
+void make_rand_vector_h(int dim, des_t_h &vec)
+{
+    float temp[dim] ;  
+     for (size_t i = 0; i < dim; i++)
+        {
+            temp[i] = static_cast<float>(rand()); 
+        }
+        float sum = 0 ; 
+        for (size_t i = 0; i < dim; i++)
+        {
+           sum += temp[i]*temp[i]  ; 
+        }
+        sum = sqrtf(sum)  ; 
+        for (size_t i = 0; i < dim; i++)
+        {
+            temp[i] /= sum ;  
+        } 
+        for (int i = 0; i < dim; i++)
+        {
+            const float to_half = temp[i]; 
+            vec[i] = __float2half(to_half); 
+        }
+}
+
+void make_rand_vec_array_h(int dim, int size, des_t_h *array)
+{
+    des_t_h *arr = (des_t_h *)array;
+    for (size_t i = 0; i < size; i++)
+    {
+        make_rand_vector_h(dim, arr[i]);
     }
 }

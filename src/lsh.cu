@@ -23,20 +23,21 @@
 // use to change rand vectors 
 int rand_vec_to_zero  = 0 ; 
 
-void make_vec(int dim, des_t &vec)
+void make_vec(int dim, des_t_f &vec)
 {
     float * vector = vec ; 
     for (size_t i = 0; i < dim; i++)
     {
-        if(i == rand_vec_to_zero)
-        {
+     //   if(i == rand_vec_to_zero)
+     //   {
 
-        vector[i] =  0 ;
-        }
-        else{
+     //   vector[i] =  0 ;
+     //   }
+     //   else{
 
+     //   vector[i] = (static_cast<float>(rand()) / static_cast<float>(RAND_MAX)) -0.5 ;
+     //   }
         vector[i] = (static_cast<float>(rand()) / static_cast<float>(RAND_MAX)) -0.5 ;
-        }
     } 
 
     rand_vec_to_zero += 2   ; 
@@ -120,7 +121,7 @@ __global__ void set_bit(int *buckets, int nbits, float * dot)
 // 
 // want rand[n] to only be read by blocks on the same sm. load in shared memory  
 //  or want points[n ] to only be read by blocks on the same sm TODO  
-__global__ void dot_gpu(des_t *  rand, des_t * points, float *dot)
+__global__ void dot_gpu(des_t_f *  rand, des_t_f * points, float *dot)
 {
     // called with 
     // n, nbits, l grid  
@@ -292,7 +293,7 @@ __device__ inline float4 set_sorted(float4 sorted , float4 min)
 // called with 
 // grid, y, 1, 1 
 // block 32, x, 1 
-__global__ void brute_2nn(float4 * sorted, int * index_r, int * index_q, int4 * start_size, des_t * r_p, des_t *  q_p) 
+__global__ void brute_2nn(float4 * sorted, int * index_r, int * index_q, int4 * start_size, des_t_f * r_p, des_t_f *  q_p) 
 {
     // use a int for now to test 
     int r_size = 4 ; 
@@ -399,7 +400,7 @@ __global__ void brute_2nn(float4 * sorted, int * index_r, int * index_q, int4 * 
 
 
 
-void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l, int max_dist, cublasHandle_t handle) 
+void lsh_test(des_t_f *q_points, des_t_f *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l, int max_dist, cublasHandle_t handle) 
 {  
     // see how much memory we have  
     size_t free_byte ;
@@ -428,7 +429,7 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     //printf("we need %i mb of space ",(((n_r * 4 * 4)+ (n_q * 4 * 4) + sizeof(int) * n_q * size_bucket) + nbits * 4 * n_q + nbits * 4 * n_r + 4 * 128 * nbits) / 1024 ) ; 
 
     // arry of vectors 
-    des_t *rand_array;
+    des_t_f *rand_array;
 
     // hash codes  
     int *code_r, *code_q;
@@ -460,7 +461,7 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     // number of buckets within hamming distance r given n bits
     cudaMallocManaged((void **)&neighbouring_buckets, sizeof(int) * n_q * size_bucket);
 
-    cudaMallocManaged((void **)&rand_array, sizeof(des_t) * nbits);
+    cudaMallocManaged((void **)&rand_array, sizeof(des_t_f) * nbits);
 
     cudaMallocManaged((void **)&index_r, sizeof(int) * n_r);  
     cudaMallocManaged((void **)&index_q, sizeof(int) * n_q);  
@@ -486,11 +487,10 @@ void lsh_test(des_t *q_points, des_t *r_points, int n_q, int n_r, float4 *sorted
     //fill sorted with MAXFLOAT 
     thrust::fill(thrust::device,(float * )sorted,(float*)( sorted + n_q * 4), MAXFLOAT) ; 
 
+    // cublas 
     float a = 1.0f;
     float b = 0.0f;
-    // todo take handle as input 
     
-
     IndexCompare code_r_sort(index_copy, code_r);
     IndexCompare code_q_sort(index_copy, code_q);
     // thrust pointers for q 

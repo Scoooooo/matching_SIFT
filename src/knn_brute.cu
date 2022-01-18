@@ -20,43 +20,95 @@
 #include <thrust/host_vector.h>
 #include <thrust/sort.h>
 #include <thrust/fill.h>
+
+// makes sure that we have enough memory  
+void cublas_2nn_f(des_t_f * q_points, des_t_f * r_points, int q_n, int r_n, float4  * sorted, cublasHandle_t handle)
+{
+    size_t free_byte ;
+    size_t total_byte ;
+    cudaMemGetInfo( &free_byte, &total_byte ) ;
+
+    double free_db = (double)free_byte ;
+    double total_db = (double)total_byte ;
+    double used_db = total_db - free_db ;
+
+    printf("GPU memory usage: used = %f, free = %f MB, total = %f MB\n",
+     used_db/1024.0/1024.0, free_db/1024.0/1024.0, total_db/1024.0/1024.0);
+
+    int i = 1 ; 
+    size_t need_byte = (size_t)q_n *  (size_t)r_n * 4 ;  
+
+    int temp = q_n ; 
+    size_t dont_use = 10000000000 ; 
+    while ( need_byte > (free_byte - dont_use ))
+    {
+        printf("%i, %zu, %zu is \n", i, need_byte, free_byte - dont_use) ; 
+        i ++ ; 
+        temp = q_n / i ; 
+        need_byte = (size_t)temp* (size_t) r_n * 4 ;  
+    }
+    printf("%i, %zu, %zu is \n", i, need_byte, free_byte - dont_use) ; 
+    float * dist ; 
+    cudaMalloc((void **)&dist, (size_t)temp*  (size_t)r_n * 4) ; 
+    int ii; 
+    for (ii = 0; ii < i; ii++)
+    {
+        cublas_2nn_brute_f(q_points + (ii * temp), r_points, temp, r_n, sorted + (ii * temp), dist, handle); 
+        printf("%i \n", ii) ; 
+    }
+    if((q_n % temp ) > 0 )
+    {
+        int left =  q_n % temp ; 
+        printf("left %i \n", left) ; 
+        cublas_2nn_brute_f(q_points + (ii * temp), r_points, left, r_n, sorted + (ii * temp), dist, handle); 
+    }
+
+    cudaFree(dist); 
+}
 // gpu brute force 2nn 
 // takes pointer with data on device as input, sorted output should also be on devcie or just manged 
-
-void cublas_2nn_brute(des_t * q_points, des_t * r_points, int q_n, int r_n, float4  * sorted, cublasHandle_t handle)
+void cublas_2nn_brute_f(des_t_f * q_points, des_t_f * r_points, int q_n, int r_n, float4  * sorted, float * dist,cublasHandle_t handle)
 {
 // steps d(x,y)^2 = ||x||^2 + ||y||^2 - 2x*y^T
-// d(x,y)^2 = 2 + -2x*y^t
+// for sift we only need to solve d(x,y)^2 = 2 + -2x*y^t
+// or -x*y^t
 // notes cublas works in colum major,, c++ is in row major :(  
 // meaning our input q_points and r_poins are already transpoed 
-// first we need to get the norms of x and y 
-    
     // add minus 
     float a = -1.f;
     float b = 0.f;
  
-    float * dist ; 
-    cudaMallocManaged((void **)&dist, q_n* r_n * sizeof(float)) ; 
-    // we are in row major so we want our out which is in colum major to be tansposed 
+   // we are in row major so we want our output from cublas to be in row major as well 
     // d^t = r * q^t is what cublas dose if see from cloum major
     // which is d = r^t * q   
-    cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, r_n, q_n, 128, &a, (float *)r_points, 128, (float *)q_points, 128, &b, dist, r_n);
     
+    cublasStatus_t stat = cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, r_n, q_n, 128, &a, (float *)r_points, 128, (float *)q_points, 128, &b, dist, r_n);
+    if (stat != CUBLAS_STATUS_SUCCESS) {
+        printf ("dot failed, cublas 2nn \n");
+        cudaFree (dist);
+        cublasDestroy(handle);
+        exit(EXIT_FAILURE);
+    } 
     // want to find min value for each dist array 
     dim3 gridSize(q_n,1,1) ;
-    dim3 blockSize(32,1,1) ; 
-    min_dist<<<gridSize,blockSize>>>(dist, r_n , sorted) ; 
-    cudaDeviceSynchronize();
+    dim3 blockSize(32,4,1) ; 
+    min_dist_f<<<gridSize,blockSize>>>(dist, r_n , sorted) ; 
+    cudaError_t cudaStat = cudaDeviceSynchronize();
 
-    cudaFree(dist); 
+    if (cudaStat != CUDA_SUCCESS) {
+        printf ("min dist failed, cublas 2nn \n");
+        cudaFree (dist);
+        cublasDestroy(handle);
+        exit(EXIT_FAILURE);
+    }
 }
 
-void device_brute(des_t * q_points, des_t * r_points, int q_n, int r_n, float4  * sorted)
+void device_brute(des_t_f * q_points, des_t_f * r_points, int q_n, int r_n, float4  * sorted)
 {
     // array of the distances between all q and r points 
     float * dev_dist ; 
     //array of dist from each q point to every r point 
-    cudaMallocManaged((void **)&dev_dist, q_n* r_n * sizeof(float)) ; 
+    cudaMalloc((void **)&dev_dist, q_n* r_n * sizeof(float)) ; 
 
     dim3 grid_size(q_n, r_n, 1) ;
     dim3 block_size(32, 1, 1) ;   
@@ -68,7 +120,7 @@ void device_brute(des_t * q_points, des_t * r_points, int q_n, int r_n, float4  
     dim3 gridSize(q_n,1,1) ;
     dim3 blockSize(32,1,1) ; 
 
-    min_dist<<<gridSize,blockSize>>>(dev_dist, r_n , sorted) ; 
+    min_dist_f<<<gridSize,blockSize>>>(dev_dist, r_n , sorted) ; 
     cudaDeviceSynchronize();
 
     cudaFree(dev_dist) ; 
@@ -76,7 +128,7 @@ void device_brute(des_t * q_points, des_t * r_points, int q_n, int r_n, float4  
 
 //kernels
 //finds the sqr euclidan distance between two 128 vector arrays
-__global__ void sqrEuclidianDist(des_t * q_points, des_t * r_points, float * dist_array)   
+__global__ void sqrEuclidianDist(des_t_f * q_points, des_t_f * r_points, float * dist_array)   
 {   
     float dist = 0.0f ;
     // find dist 
@@ -132,28 +184,30 @@ __device__ inline void best_in_warp(float4  &min_2)
 }
  
 // x warps per dist 
-__global__ void min_dist(float *  dist, int size ,float4 * sorted)
+__global__ void min_dist_f(float *  dist, int size ,float4 * sorted)
 {
-    //           finds the dist array         x dim       y dim pos                      
+    //            finds the dist array         x dim       y dim pos                      
     int offset = (blockIdx.x * size)+ threadIdx.y * blockDim.x ;
    
     float4 min_2 ;  
     min_2.x = MAXFLOAT; 
     min_2.y = MAXFLOAT; 
-
+    //maybe better to read values first, however compiler may just be doing it for me
     for (int i = 0; (i + threadIdx.x +  threadIdx.y * blockDim.x  ) < size ; i+=(blockDim.x * blockDim.y) )
     {
-        if(dist[i + offset + threadIdx.x] < min_2.x)
+
+        float temp = dist[i + offset + threadIdx.x]; 
+        if(temp < min_2.x)
         {
             min_2.y = min_2.x ; 
-            min_2.x = dist[i + offset + threadIdx.x ] ;  
+            min_2.x = temp ;  
             min_2.w = min_2.z ;  
             min_2.z = i + threadIdx.x + threadIdx.y * blockDim.x  ; 
         }
         else{
-            if(dist[i + offset + threadIdx.x ] < min_2.y)
+            if(temp< min_2.y)
             {
-                min_2.y = dist[i + offset + threadIdx.x ] ;  
+                min_2.y = temp;  
                 min_2.w = i + threadIdx.x + threadIdx.y * blockDim.x   ;  
             }
         }
@@ -175,7 +229,6 @@ __global__ void min_dist(float *  dist, int size ,float4 * sorted)
     
     __syncthreads() ; 
     if(threadIdx.y == 0){
-
         min_2 = best[threadIdx.x] ; 
         best_in_warp(min_2) ; 
         if(threadIdx.x == 0)
@@ -187,7 +240,7 @@ __global__ void min_dist(float *  dist, int size ,float4 * sorted)
 
 //host brute
 
-void host_brute(des_t * q_points, des_t * r_points, int q_points_size, int r_points_size, float4  * sorted)
+void host_brute(des_t_f * q_points, des_t_f * r_points, int q_points_size, int r_points_size, float4  * sorted)
 {
     
     float * lenght;
@@ -240,7 +293,7 @@ void host_sort(float * dist, int size, int array_size, float4 * sorted)
 }
 
 // given 2 points find the euclidina lenght before taking the root
-float host_lenght(des_t x, des_t y){
+float host_lenght(des_t_f x, des_t_f y){
     float * vec1 = (float * )x ; 
     float * vec2 = (float * )y ;
     float dist =  0.0f  ;  
