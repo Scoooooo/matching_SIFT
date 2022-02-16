@@ -20,7 +20,7 @@ __global__ void brute_2nn(float4 * sorted, int * index_r, int * index_q, int4 * 
 
 __device__ inline float4 set_sorted(float4 sorted , float4 min); 
 
-__device__ inline void best_in_warp(float4  &min_2); 
+__device__ inline void best_in_warp_float(float4  &min_2); 
 
 void test_alloc(const char * s, cudaError_t stat) ; 
 void test_kernel(const char *  s,cudaError_t stat) ; 

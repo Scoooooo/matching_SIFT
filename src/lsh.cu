@@ -228,7 +228,7 @@ __global__ void find_all_neigbours_dist_2_pair(int to_read, int * neighbouring_b
 }
 
 //find smallest vlaue in the warp and index  
-__device__ inline void best_in_warp(float4  &min_2)
+__device__ inline void best_in_warp_float(float4  &min_2)
 {    
     for (int i = 16; i > 0; i/= 2)
     {          
@@ -369,7 +369,7 @@ __global__ void brute_2nn(float4 * sorted, int * index_r, int * index_q, int4 * 
 
                     if(count == 32)
                     {
-                        best_in_warp(best) ; 
+                        best_in_warp_float(best) ; 
                         count = 0 ; 
                         if(threadIdx.x == 0)
                         {
@@ -386,7 +386,7 @@ __global__ void brute_2nn(float4 * sorted, int * index_r, int * index_q, int4 * 
 
         if((i + threadIdx.y) < start_size_q_r.y)
         {
-            best_in_warp(best) ; 
+            best_in_warp_float(best) ; 
             count = 0 ; 
             if(threadIdx.x == 0)
             {
