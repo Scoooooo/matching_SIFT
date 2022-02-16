@@ -15,7 +15,7 @@ typedef struct{
    half2 w;
 } half8;
  
-
+// full half 2nn for sift 
 int cublas_2nn_sift(void * q_points, void * r_points, int type ,uint32_t q_n, uint32_t r_n, uint32_t * matches, float threshold, cublasHandle_t handle)
 {
 
@@ -126,7 +126,7 @@ int cublas_2nn_sift_batch(des_t_h2 * Q, des_t_h2 * R, uint32_t q_n, uint32_t r_n
 {
     // d^t = r * q^t is what cublas dose if see from cloum major
     // which is d = r^t * q   
-   // float a = -1.f;
+   // float a = -2.f;
    // float b = 0.f;
     // singel for more accuracy but a bit slower 
     // cublasStatus_t stat = cublasGemmEx(handle, CUBLAS_OP_T, CUBLAS_OP_N, r_n, q_n, 128, &a, (half *)Q, CUDA_R_16F, 128, 
@@ -161,6 +161,7 @@ int cublas_2nn_sift_batch(des_t_h2 * Q, des_t_h2 * R, uint32_t q_n, uint32_t r_n
  
 }
 
+// todo if i have time 
 //__device__ inline void min_half8(__half2  &min_2, half8 temp, int2 &index, int2 temp_index)
 //{
 //
@@ -179,6 +180,7 @@ int cublas_2nn_sift_batch(des_t_h2 * Q, des_t_h2 * R, uint32_t q_n, uint32_t r_n
 //
 //}
 
+// converts from floats to halfs  
 __global__ void float2half(float * points, half2 * output)
 {
     float2 f2 =  ((float2 * )points)[threadIdx.x + blockDim.x * blockIdx.x] ; 
@@ -214,7 +216,7 @@ __global__ void find_matches(half2 *  dist, int size , uint32_t * matches, float
         temp_index.y = temp_index.x + 1;  
         //min_half(min_2, temp, index, temp_index); 
 
-        // a better reduce here using vector compare for half2 is most probly very possible
+        // a better reduce here using vector comparasion for half2 is most likely very possible
         min_half(min_2, temp.x, index, temp_index); 
         temp_index.x ++;   
         temp_index.y ++;  
@@ -231,7 +233,7 @@ __global__ void find_matches(half2 *  dist, int size , uint32_t * matches, float
     }
 
     best_in_warp(min_2, index) ;   
-    // hmm we do not alwasy need yhis much 
+    // block wide reduction 
     __shared__ __half2 best_val[32] ; 
     __shared__ int2 best_index[32] ; 
 
@@ -253,7 +255,7 @@ __global__ void find_matches(half2 *  dist, int size , uint32_t * matches, float
        best_in_warp(min_2, index) ;   
        if(threadIdx.x == 0)
        {    
-           
+           // todo check threshold          
            half2 val ; 
            val.x = 2 ; val.y = 2 ; 
            val = __hadd2 ( val, min_2 ) ;  
@@ -269,11 +271,11 @@ __global__ void find_matches(half2 *  dist, int size , uint32_t * matches, float
                
                matches[blockIdx.x] = UINT32_MAX  ; 
            }
-           
        }
     }
 }
 
+// reduction 2 half2s
 __device__ inline void min_half(__half2  &min_2, __half2 temp, int2 &index, int2 temp_index)
 {
 
@@ -306,10 +308,40 @@ __device__ inline void min_half(__half2  &min_2, __half2 temp, int2 &index, int2
         min_2.y = temp.y ; 
         index.y = temp_index.y ; 
     }
-
 }
 
+// reduction warp
+__device__ inline void best_in_warp(__half2  &min_2, int2 &index)
+{
+    for (int i = 16; i > 0; i/= 2)
+    {          
+        half2 temp = __shfl_down_sync( 0xffffffff, min_2, i );
+        int index_x  = __shfl_down_sync( 0xffffffff, index.x, i );
+        int index_y  = __shfl_down_sync( 0xffffffff, index.y, i );
 
+        //half2 val = __hgt2(min_2, temp) ; 
+        //if(val.x)
+        if(__hgt(min_2.x, temp.x))
+        {
+            min_2.x = temp.x ; 
+            index.x = index_x ; 
+        }
+        else if(__hgt(min_2.y, temp.x))
+        {
+            min_2.y = temp.x ; 
+            index.y = index_x ; 
+        }
+
+        if(__hgt(min_2.y, temp.y))
+        //if(val.y)
+        {
+            min_2.y = temp.y ; 
+            index.y = index_y ; 
+        }
+    }
+}
+
+// cublas brute for floats with 16 bit dot 
 // makes sure that we have enough memory  
 void cublas_2nn_f(des_t_f * q_points, des_t_f * r_points, int q_n, int r_n, float4  * sorted, cublasHandle_t handle)
 {
@@ -353,6 +385,7 @@ void cublas_2nn_f(des_t_f * q_points, des_t_f * r_points, int q_n, int r_n, floa
     }
    cudaFree(dist); 
 }
+
 // gpu brute force 2nn 
 // takes pointer with data on device as input, sorted output should also be on devcie or just manged 
 void cublas_2nn_brute_f(des_t_f * q_points, des_t_f * r_points, int q_n, int r_n, float4  * sorted, float * dist,cublasHandle_t handle)
@@ -487,35 +520,6 @@ __device__ inline void best_in_warp_float(float4  &min_2)
     }
 }
 
-__device__ inline void best_in_warp(__half2  &min_2, int2 &index)
-{
-    for (int i = 16; i > 0; i/= 2)
-    {          
-        half2 temp = __shfl_down_sync( 0xffffffff, min_2, i );
-        int index_x  = __shfl_down_sync( 0xffffffff, index.x, i );
-        int index_y  = __shfl_down_sync( 0xffffffff, index.y, i );
-
-        //half2 val = __hgt2(min_2, temp) ; 
-        //if(val.x)
-        if(__hgt(min_2.x, temp.x))
-        {
-            min_2.x = temp.x ; 
-            index.x = index_x ; 
-        }
-        else if(__hgt(min_2.y, temp.x))
-        {
-            min_2.y = temp.x ; 
-            index.y = index_x ; 
-        }
-
-        if(__hgt(min_2.y, temp.y))
-        //if(val.y)
-        {
-            min_2.y = temp.y ; 
-            index.y = index_y ; 
-        }
-    }
-}
 // x warps per dist 
 __global__ void min_dist_f(float *  dist, int size ,float4 * sorted)
 {
@@ -571,8 +575,9 @@ __global__ void min_dist_f(float *  dist, int size ,float4 * sorted)
     }
 }
 
-//host brute
 
+// normal cpu brute 2nn 
+//host brute
 void host_brute(des_t_f * q_points, des_t_f * r_points, int q_points_size, int r_points_size, float4  * sorted)
 {
     

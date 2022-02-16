@@ -20,9 +20,9 @@
 #include <thrust/host_vector.h>
 #include <thrust/sort.h>
 #include <thrust/fill.h>
-// use to change rand vectors 
-int rand_vec_to_zero  = 0 ; 
 
+// makes random vectors used to hash 
+// atm this is not a very good soulution
 void make_vec(int dim, des_t_f &vec)
 {
     float * vector = vec ; 
@@ -39,8 +39,6 @@ void make_vec(int dim, des_t_f &vec)
      //   }
         vector[i] = (static_cast<float>(rand()) / static_cast<float>(RAND_MAX)) -0.5 ;
     } 
-
-    rand_vec_to_zero += 2   ; 
 }
 
 class IndexCompare
@@ -260,6 +258,7 @@ __device__ inline void best_in_warp_float(float4  &min_2)
     }
 }
 
+
 __device__ inline float4 set_sorted(float4 sorted , float4 min)
 {
     if(sorted.x > min.x)
@@ -289,7 +288,7 @@ __device__ inline float4 set_sorted(float4 sorted , float4 min)
     }
     return sorted ; 
 }
-// takes 2 buckets and find the 2nns 
+// takes 2 buckets and find the 2nns for each point from the query bucket 
 // called with 
 // grid, y, 1, 1 
 // block 32, x, 1 
@@ -398,8 +397,6 @@ __global__ void brute_2nn(float4 * sorted, int * index_r, int * index_q, int4 * 
     }   
 }
 
-
-
 void lsh_test(des_t_f *q_points, des_t_f *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l, int max_dist, cublasHandle_t handle) 
 {  
     // see how much memory we have  
@@ -459,6 +456,7 @@ void lsh_test(des_t_f *q_points, des_t_f *r_points, int n_q, int n_r, float4 *so
     // a bucket of all the points each q has to check   
     int *neighbouring_buckets;
     // number of buckets within hamming distance r given n bits
+    //malloc
     cudaMallocManaged((void **)&neighbouring_buckets, sizeof(int) * n_q * size_bucket);
 
     cudaMallocManaged((void **)&rand_array, sizeof(des_t_f) * nbits);
@@ -466,10 +464,6 @@ void lsh_test(des_t_f *q_points, des_t_f *r_points, int n_q, int n_r, float4 *so
     cudaMallocManaged((void **)&index_r, sizeof(int) * n_r);  
     cudaMallocManaged((void **)&index_q, sizeof(int) * n_q);  
  
-    // need to index with a smaller array 
-    // this would in the worst case use 17 gb of memory :(
-    // cudaMallocManaged((void **)&bucket_start_r, (2 << nbits) * sizeof(int));
-
     cudaMallocManaged((void **)&code_r, sizeof(int) * n_r);
     cudaMallocManaged((void **)&code_q, sizeof(int) * n_q);
 
@@ -515,16 +509,13 @@ void lsh_test(des_t_f *q_points, des_t_f *r_points, int n_q, int n_r, float4 *so
         thrust::copy(index_copy,index_copy+ n_q,index_q) ;  
         thrust::copy(index_copy,index_copy+ n_r,index_r) ;  
 
-        // to do random vectos gpu curand / thrust 
+        // todo random vectos gpu curand / thrust 
        // make random vectors
         for (int i = 0; i < nbits; i++)
         {
             make_vec(128, rand_array[i]);
         }
-        //using to see how setting values in the rand vec to 0 changes things         
-        rand_vec_to_zero = l ; 
-
-
+       
         // dot random vectors with n_r
         // using cublas
         //dim3 grid_dot_r(n_r, nbits, 1) ;
