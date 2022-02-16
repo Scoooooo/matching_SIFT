@@ -76,15 +76,6 @@ int cublas_2nn_sift(void * q_points, void * r_points, int type ,uint32_t q_n, ui
         Q = (des_t_h2 * )q_points ; 
     }
 
-     cudaError_t cudaStat = cudaDeviceSynchronize();
-
-       if (cudaStat != cudaSuccess)
-       {
-           printf ("malloc copy failed :( ) \n");
-           cublasDestroy(handle);
-           exit(EXIT_FAILURE);
-       }
-
     // cublas gemm wants to stasify 
     // m % 8 == 0
     // k % 8 == 0
@@ -100,7 +91,7 @@ int cublas_2nn_sift(void * q_points, void * r_points, int type ,uint32_t q_n, ui
     // number of bytes to we want for output array  
     // probly difrent for difrent gpus 
 
-    size_t use = 40000000000 ; 
+    size_t use = 4000000000 ; 
     // give us how many iterations we need to run  
     uint32_t new_q_n = use /((size_t) r_n * sizeof(half)); 
     printf("%i it \n", new_q_n) ; 
@@ -111,11 +102,10 @@ int cublas_2nn_sift(void * q_points, void * r_points, int type ,uint32_t q_n, ui
     // need to pad because we want the lengh
     cudaMalloc((void **)&dist, new_q_n * r_n * sizeof(half)) ; 
     printf("%i dist size in bytes  \n", (new_q_n * r_n * sizeof(half)) ) ; 
-
     int i = 0 ;  
     for (i = 0; i < it; i++)
     {
-        printf("int %i \n", i); 
+       // printf("int %i \n", i); 
         cublas_2nn_sift_batch(Q + (i * new_q_n), R, new_q_n, r_n, dist, matches + (i * new_q_n), threshold, handle); 
     }
     if((q_n % new_q_n ) > 0 )
@@ -156,8 +146,8 @@ int cublas_2nn_sift_batch(des_t_h2 * Q, des_t_h2 * R, uint32_t q_n, uint32_t r_n
     } 
     // want to find min value for each dist array 
     dim3 gridSize(q_n,1,1) ;
-    dim3 blockSize(32,4,1) ; 
-    find_matches<<<gridSize,blockSize>>>(dist, r_n / 2, matches, threshold) ; 
+    dim3 blockSize(32,8,1) ; 
+    find_matches<<<gridSize,blockSize>>>(dist, r_n / 8, matches, threshold) ; 
     cudaError_t cudaStat = cudaDeviceSynchronize();
 
     if (cudaStat != cudaSuccess)
@@ -198,12 +188,12 @@ __global__ void float2half(float * points, half2 * output)
 __global__ void find_matches(half2 *  dist, int size , uint32_t * matches, float threshold)
 {
     //  finds the dist array         x dim       y dim pos                      
-    int offset = (blockIdx.x * size) + threadIdx.y * blockDim.x ;
+    int  offset = (blockIdx.x * size) + threadIdx.y * blockDim.x ;
 
     half2 min_2 ;  
     int2 index ; 
-   // half8 temp ; 
-    half2 temp ; 
+    half8 temp ; 
+   // half2 temp ; 
     //  our values will be negative so setting to 0 is fine  
     min_2.x = 0.0f; 
     min_2.y = 0.0f; 
@@ -213,33 +203,30 @@ __global__ void find_matches(half2 *  dist, int size , uint32_t * matches, float
     for (int i = 0; (i + threadIdx.x +  threadIdx.y * blockDim.x  ) < size ; i+= (blockDim.x * blockDim.y) )
     //for (int i = 0; (i + threadIdx.x) < size ; i+= (blockDim.x * blockDim.y) )
     {   
-    
-        // todo if time
-        // need to read as uint4 to get 128 bits at once, half8 not suported ? 
-        // why do we read 4 ?
-        // performance is better idk why 0_0
-        //temp = ((half8 * )dist)[i + offset + threadIdx.x]  ;     
-        temp = dist[i + offset + threadIdx.x]  ;     
+        // why do we read 4 
+        // performance is better when we read half8 
+        temp = ((half8 * )dist)[i + offset + threadIdx.x]  ;     
+       // temp = dist[(i + offset + threadIdx.x)]  ;     
 
         int2 temp_index  ;  
 
-        temp_index.x = (i + threadIdx.x + threadIdx.y * blockDim.x) * 2  ; 
+        temp_index.x = (i + threadIdx.x + threadIdx.y * blockDim.x) * 8  ; 
         temp_index.y = temp_index.x + 1;  
-        min_half(min_2, temp, index, temp_index); 
+        //min_half(min_2, temp, index, temp_index); 
 
-     //  min_half(min_2, temp.x, index, temp_index); 
-     //  temp_index.x ++;   
-     //  temp_index.y ++;  
-     //  
-     //  min_half(min_2, temp.y, index, temp_index); 
-     //  temp_index.x ++;   
-     //  temp_index.y ++;  
-     //  
-     //  min_half(min_2, temp.z, index, temp_index); 
-     //  temp_index.x ++;   
-     //  temp_index.y ++;  
-     //  
-     //  min_half(min_2, temp.w, index, temp_index); 
+        // a better reduce here using vector compare for half2 is most probly very possible
+        min_half(min_2, temp.x, index, temp_index); 
+        temp_index.x ++;   
+        temp_index.y ++;  
+        
+        min_half(min_2, temp.y, index, temp_index); 
+        temp_index.x ++;   
+        temp_index.y ++;  
+        
+        min_half(min_2, temp.z, index, temp_index); 
+        temp_index.x ++;   
+        temp_index.y ++;  
+        min_half(min_2, temp.w, index, temp_index); 
 
     }
 

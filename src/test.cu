@@ -27,15 +27,15 @@ void test_half_float();
 
 int main(int argc, char *argv[])
 {
-    test_float();
-   // test_half_float() ; 
+    //test_float();
+    test_half_float() ; 
     return 0;
 }
 void test_float()
 {
     int dim = 128;
-    int size_q = 800000;
-    int size_r = 800000;
+    int size_q = 1000000;
+    int size_r = 1000000;
 
     des_t_f *q_points;
     des_t_f *r_points;
@@ -130,10 +130,9 @@ void test_float()
 
 void test_half_float()
 {
-     
     int dim = 128;
-    int size_q = 500000;
-    int size_r = 500000;
+    int size_q = 2000000;
+    int size_r = 2000000;
 
     des_t_h *q_points;
     des_t_h *r_points;
@@ -141,8 +140,6 @@ void test_half_float()
     des_t_h2 *gpu_q_points;
     des_t_h2 *gpu_r_points;
 
-    float4 *sorted_lsh;
-    float4 *sorted_2nn;
     uint32_t * matches ; 
     cublasHandle_t handle;
     cublasCreate(&handle);
@@ -154,7 +151,6 @@ void test_half_float()
     cudaMalloc((void **)&gpu_r_points, size_r * sizeof(des_t_h2));
 
     //output arrays dist and index of dist for 2nn 
-    cudaMallocManaged((void **)&sorted_lsh, size_q * sizeof(float4));
     cudaMallocManaged((void **)&matches, size_q * sizeof(uint32_t));
 
     make_rand_vec_array_h(dim, size_q, q_points);
@@ -171,7 +167,7 @@ void test_half_float()
     //gpu_lsh(q_points, r_points, size_q, size_r, sorted_host, 4, 4, 2);
     print_time(s, "gpu lsh"); 
     s = start_timer() ; 
-    cublas_2nn_sift(gpu_q_points, gpu_r_points, 3, size_q, size_r, matches, 0.8, handle); 
+    cublas_2nn_sift(gpu_q_points, gpu_r_points, 3, size_q, size_r, matches, 0.999, handle); 
 
     cudaDeviceSynchronize() ;
     printf("brute needs to compare %zu points \n", size_q * size_r ) ; 
@@ -184,34 +180,11 @@ void test_half_float()
     
     return ; 
     // see how many poins lsh got right 
-    for (size_t i = 0; i < size_q; i++)
-    {
-       // printf("\n") ;
-        if(sorted_2nn[i].z !=  sorted_lsh[i].z)
-        {
-            if(sorted_2nn[i].z == 0)
-            {
-                printf(" i am 0 \n");  
-            }
-            failed ++ ; 
-//            printf("z is bad \n") ; 
-  //  printf("lsh 1  %f index %f  lsh 2 %f index %f \n", sorted_host[i].x, sorted_host[i].z, sorted_host[i].y,  sorted_host[i].w) ; 
-  //  printf("cpu 1  %f index %f  cpu 2 %f index %f \n", sorted_dev[i].x, sorted_dev[i].z, sorted_dev[i].y,  sorted_dev[i].w) ;
-        }
-        if(sorted_2nn[i].w !=  sorted_lsh[i].w)
-        {
-            failed ++ ; 
- //           printf("w is not good \n"); 
-        }
-        
-    }
     printf("found %i out of %i nn \n",((size_q * 2)- failed),(size_q *2) ) ; 
     cudaFree(gpu_q_points); 
     cudaFree(gpu_r_points); 
     cudaFree(q_points); 
     cudaFree(r_points); 
-    cudaFree(sorted_2nn); 
-    cudaFree(sorted_lsh); 
 }
 
   
