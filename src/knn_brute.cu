@@ -6,7 +6,6 @@
 #include "knn_brute.h"
 #include "helper.h"
 #include "cuda_fp16.h"
-#include <algorithm>
  
 typedef struct{
    half2 x;
@@ -16,20 +15,19 @@ typedef struct{
 } half8;
  
 // full half 2nn for sift 
-int cublas_2nn_sift(void * q_points, void * r_points, int type ,uint32_t q_n, uint32_t r_n, uint32_t * matches, float threshold, cublasHandle_t handle)
+int cublas_2nn_sift(void * q_points, void * r_points, int type, uint32_t q_n, uint32_t r_n, uint32_t * matches, float threshold, cublasHandle_t * handle, cudaStream_t * stream, int stream_n)
 {
-
     size_t free_byte ;
     size_t total_byte ;
     cudaMemGetInfo( &free_byte, &total_byte ) ;
 
-    des_t_h2 * Q;
     des_t_h2 * R;  
 
     // we have 3 possible inputs chars/floats/half_floats
     // half will be fastest as we do not need to convert 
-
-    // chars  
+    // R needs to be in device memory and of type half2 since we use the whole array for every cublas call
+    // for R size cublas wants r_n % 8 == 0 
+    // chars todo ?  
     if (type == 0)
     {
     
@@ -54,9 +52,7 @@ int cublas_2nn_sift(void * q_points, void * r_points, int type ,uint32_t q_n, ui
             // fill
             float2half<<<r_n, 64>>>((float * )r_points, (half2 * )R) ; 
         }
-        cudaMalloc((void **)&Q, q_n * sizeof(des_t_h2));
-        // fill
-        float2half<<<q_n, 64>>>((float * )q_points, (half2 * )Q) ; 
+         
     }
     // halfs 
     else
@@ -73,111 +69,164 @@ int cublas_2nn_sift(void * q_points, void * r_points, int type ,uint32_t q_n, ui
         else{
             R = (des_t_h2 * )r_points ; 
         } 
-        Q = (des_t_h2 * )q_points ; 
     }
-
-    // cublas gemm wants to stasify 
-    // m % 8 == 0
-    // k % 8 == 0
-    // op_B == CUBLAS_OP_N || n%8 == 0
-    // intptr_t(A) % 16 == 0
-    // intptr_t(B) % 16 == 0
-    // intptr_t(C) % 16 == 0
-    // intptr_t(A+lda) % 16 == 0
-    // intptr_t(B+ldb) % 16 == 0
-    // intptr_t(C+ldc) % 16 == 0 
-    
 
     // number of bytes to we want for output array  
     // probly difrent for difrent gpus 
-
     size_t use = 4000000000 ; 
     // give us how many iterations we need to run  
     uint32_t new_q_n = use /((size_t) r_n * sizeof(half)); 
+    if(new_q_n > q_n)
+    {
+        new_q_n = q_n ; 
+    }
     printf("%i it \n", new_q_n) ; 
     
     //get number if iterartions +- 1 
     int it = q_n / new_q_n;  
-    half2 * dist ; 
-    // need to pad because we want the lengh
-    cudaMalloc((void **)&dist, new_q_n * r_n * sizeof(half)) ; 
+    // malloc for each stream 
+    half2 * dist[stream_n] ;
+    des_t_h2 * Q[stream_n] ; 
+    for (int i = 0; i < stream_n; i++)
+    {
+        cudaMallocAsync((void **)&dist[i], new_q_n * r_n * sizeof(half), stream[i]) ; 
+        // do not need to malloc if half2 is in memory 
+        if(type != 2)
+        {
+            cudaMallocAsync((void **)&Q[i], new_q_n * sizeof(des_t_h2), stream[i]); 
+        }
+    }
+    
+
     printf("%i dist size in bytes  \n", (new_q_n * r_n * sizeof(half)) ) ; 
     int i = 0 ;  
+    int stream_id = 0 ; 
     for (i = 0; i < it; i++)
     {
        // printf("int %i \n", i); 
-        cublas_2nn_sift_batch(Q + (i * new_q_n), R, new_q_n, r_n, dist, matches + (i * new_q_n), threshold, handle); 
+        if(type != 2)
+        {
+            cublas_2nn_sift_batch((des_t_f * )q_points + (i * new_q_n), Q[stream_id],  1 , R, new_q_n, r_n, dist[stream_id], matches + (i * new_q_n), threshold, handle[stream_id], stream[stream_id]); 
+        } 
+        else
+        {
+            cublas_2nn_sift_batch((des_t_h2 * )q_points + (i * new_q_n), Q[stream_id],  0 , R, new_q_n, r_n, dist[stream_id], matches + (i * new_q_n), threshold, handle[stream_id], stream[stream_id]); 
+        }
+        stream_id ++ ; 
+        if(stream_id == stream_n)
+        {
+            stream_id = 0 ; 
+        }
     }
+
     if((q_n % new_q_n ) > 0 )
     {
         int left =  q_n % new_q_n; 
         printf("left %i \n", left) ; 
-        // need to meemset as it will not fill the whole dist array         
-        cudaMemset(dist, 0, left * r_n * sizeof(half));
-        cublas_2nn_sift_batch(Q + (i * new_q_n), R, left, r_n, dist, matches + (i * new_q_n), threshold, handle); 
+        if(type != 2)
+        {
+            cublas_2nn_sift_batch((des_t_f * )q_points + (i * new_q_n), Q[stream_id],  1 , R, left, r_n, dist[stream_id], matches + (i * new_q_n), threshold, handle[stream_id], stream[stream_id]); 
+        }
+        else
+        {
+            cublas_2nn_sift_batch((des_t_h2 * )q_points + (i * new_q_n), Q[stream_id],  0 , R, left, r_n, dist[stream_id], matches + (i * new_q_n), threshold, handle[stream_id], stream[stream_id]); 
+        }
     }
-    cudaFree(dist); 
+
+    for (int i = 0; i < stream_n; i++)
+    {
+        cudaFreeAsync(dist[i], stream[i]);
+        cudaFreeAsync(Q[i], stream[i]);
+    }
     return 0  ; 
 }
 
 // gpu brute force 2nn 
 // takes pointer with data on device as input, sorted output should also be on devcie or just manged 
-int cublas_2nn_sift_batch(des_t_h2 * Q, des_t_h2 * R, uint32_t q_n, uint32_t r_n, half2 * dist, uint32_t * matches, float threshold, cublasHandle_t handle)
+int cublas_2nn_sift_batch(void * q_points, des_t_h2 * Q, int type, des_t_h2 * R, uint32_t q_n, uint32_t r_n, half2 * dist, uint32_t * matches, float threshold, cublasHandle_t handle, cudaStream_t stream)
 {
-    // d^t = r * q^t is what cublas dose if see from cloum major
-    // which is d = r^t * q   
    // float a = -2.f;
    // float b = 0.f;
-    // singel for more accuracy but a bit slower 
-    // cublasStatus_t stat = cublasGemmEx(handle, CUBLAS_OP_T, CUBLAS_OP_N, r_n, q_n, 128, &a, (half *)Q, CUDA_R_16F, 128, 
+   // singel for more accuracy but a bit slower 
+   // cublasStatus_t stat = cublasGemmEx(handle, CUBLAS_OP_T, CUBLAS_OP_N, r_n, q_n, 128, &a, (half *)Q, CUDA_R_16F, 128, 
                             // (half *)R, CUDA_R_16F, 128, &b, (half * )dist,CUDA_R_16F, r_n, CUBLAS_COMPUTE_16F, CUBLAS_GEMM_DEFAULT_TENSOR_OP);
- 
-    //cublasStatus_t stat = cublasSgemmEx(handle, CUBLAS_OP_T, CUBLAS_OP_N, r_n, q_n, 128, &a, (half *)Q, CUDA_R_16F, 128, (half *)R, CUDA_R_16F, 128, &b, (half *)dist,CUDA_R_16F, r_n);
+   //cublasStatus_t stat = cublasSgemmEx(handle, CUBLAS_OP_T, CUBLAS_OP_N, r_n, q_n, 128, &a, (half *)Q, CUDA_R_16F, 128, (half *)R, CUDA_R_16F, 128, &b, (half *)dist,CUDA_R_16F, r_n);
+
+    //Q can be either in device or host memory and of half / float type  
+
+    //in device memory and of type half
+    if(type == 0)
+    {
+        Q = (des_t_h2 *)q_points ; 
+    }
+    //in device memory but of type float
+    else if(type == 1)
+    {
+        // fill
+        float2half<<<q_n, 64,0, stream>>>((float * )q_points, (half2 * )Q) ;
+    }
 
     half a = -2.f;
     half b = 0.f; 
-    cublasStatus_t stat = cublasHgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, r_n, q_n, 128, &a, (half *)R, 128, (half *)Q, 128, &b, (half *)dist, r_n);
+    cublasSetStream(handle, stream) ; 
+    //cublasStatus_t stat = 
+    cublasHgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, r_n, q_n, 128, &a, (half *)R, 128, (half *)Q, 128, &b, (half *)dist, r_n);
     
-    if (stat != CUBLAS_STATUS_SUCCESS) {
-        printf ("dot failed, cublas 2nn \n");
-        cudaFree (dist);
-        cublasDestroy(handle);
-        exit(EXIT_FAILURE);
-    } 
+    //if (stat != CUBLAS_STATUS_SUCCESS) {
+    //    printf ("dot failed, cublas 2nn \n");
+    //    cudaFree (dist);
+    //    cublasDestroy(handle);
+    //    exit(EXIT_FAILURE);
+    //} 
     // want to find min value for each dist array 
     dim3 gridSize(q_n,1,1) ;
     dim3 blockSize(32,8,1) ; 
-    find_matches<<<gridSize,blockSize>>>(dist, r_n / 8, matches, threshold) ; 
-    cudaError_t cudaStat = cudaDeviceSynchronize();
+    find_matches<<<gridSize,blockSize, 0, stream>>>(dist, r_n / 8, matches, threshold) ; 
+   // cudaError_t cudaStat = cudaDeviceSynchronize();
 
-    if (cudaStat != cudaSuccess)
-    {
-        printf ("min dist failed, cublas 2nn \n");
-        cudaFree (dist);
-        cublasDestroy(handle);
-        exit(EXIT_FAILURE);
-    }
-    return 0 ; 
- 
+   // if (cudaStat != cudaSuccess)
+   // {
+   //     printf ("min dist failed, cublas 2nn \n");
+   //     cudaFree (dist);
+   //     cublasDestroy(handle);
+   //     exit(EXIT_FAILURE);
+   // }
+
+    return 0 ;  
 }
 
-// todo if i have time 
-//__device__ inline void min_half8(__half2  &min_2, half8 temp, int2 &index, int2 temp_index)
+// the reduction of the half8 can probly be done better todo if time  
+//__device__ inline void min_half_helper(__half2  &min_2, half8 temp, int2 &index, int2 temp_index)
 //{
 //
-//    half2 val1 = __hgt2(temp.x, temp.y) ; 
+//}
+////// todo if i have time 
+//__device__ inline void min_half8(__half2  &min_2, half8 temp, int2 &index, int2 temp_index)
+//{
+//    // given 10 halfs find the 2min and their index
+//    // reduce 2 finding the 
+//    if(__hgt(temp.x.x, temp.x.y))
+//    {
+//        half val = temp.x.x ; 
+//        temp.x.x = temp.x.y ; 
+//        temp.x.y = val ;  
+//        temp_index.x ++ ; 
+//        temp_index.y -- ;
+//    }
 //
-//    half2 val2 = __hgt2(temp.x, temp.z) ; 
-//    half2 val3 = __hgt2(temp.x, temp.w) ; 
+//    if(__hgt(temp.x.x, temp.y.x))
+//    {
+//        half val = temp.x.x ; 
+//        temp.x.x = temp.x.y ; 
+//        temp.x.y = val ;  
+//        temp_index.x ++ ; 
+//        temp_index.y -- ;
+//    }
 //
-//    half2 val4 = __hgt2(temp.y, temp.z) ; 
-//    half2 val5 = __hgt2(temp.y, temp.w) ; 
 //
-//    half2 val6 = __hgt2(temp.z, temp.w) ; 
 //
 //    int a, b ; 
 //    if(val1.x && val2.x && val3.x) ; 
-//
 //}
 
 // converts from floats to halfs  
@@ -189,12 +238,12 @@ __global__ void float2half(float * points, half2 * output)
 
 __global__ void find_matches(half2 *  dist, int size , uint32_t * matches, float threshold)
 {
+
     //  finds the dist array         x dim       y dim pos                      
     int  offset = (blockIdx.x * size) + threadIdx.y * blockDim.x ;
 
     half2 min_2 ;  
     int2 index ; 
-    half8 temp ; 
    // half2 temp ; 
     //  our values will be negative so setting to 0 is fine  
     min_2.x = 0.0f; 
@@ -207,7 +256,7 @@ __global__ void find_matches(half2 *  dist, int size , uint32_t * matches, float
     {   
         // why do we read 4 
         // performance is better when we read half8 
-        temp = ((half8 * )dist)[i + offset + threadIdx.x]  ;     
+        half8 temp = ((half8 * )dist)[i + offset + threadIdx.x]  ;     
        // temp = dist[(i + offset + threadIdx.x)]  ;     
 
         int2 temp_index  ;  
@@ -216,18 +265,20 @@ __global__ void find_matches(half2 *  dist, int size , uint32_t * matches, float
         temp_index.y = temp_index.x + 1;  
         //min_half(min_2, temp, index, temp_index); 
 
-        // a better reduce here using vector comparasion for half2 is most likely very possible
+        // a better reduce here using vector comparasion for half2 is most likely very possible ? 
         min_half(min_2, temp.x, index, temp_index); 
-        temp_index.x ++;   
-        temp_index.y ++;  
+        temp_index.x = (i + threadIdx.x + threadIdx.y * blockDim.x) * 8 + 2  ; 
+        temp_index.y = temp_index.x + 1 ;  
         
         min_half(min_2, temp.y, index, temp_index); 
-        temp_index.x ++;   
-        temp_index.y ++;  
+        temp_index.x = (i + threadIdx.x + threadIdx.y * blockDim.x) * 8 + 4  ; 
+        temp_index.y = temp_index.x + 1 ;  
         
         min_half(min_2, temp.z, index, temp_index); 
-        temp_index.x ++;   
-        temp_index.y ++;  
+        
+        temp_index.x = (i + threadIdx.x + threadIdx.y * blockDim.x) * 8 + 6  ; 
+        temp_index.y = temp_index.x + 1 ;  
+        
         min_half(min_2, temp.w, index, temp_index); 
 
     }
@@ -243,13 +294,13 @@ __global__ void find_matches(half2 *  dist, int size , uint32_t * matches, float
        best_val[threadIdx.x].y = 0.0f  ;
     }
    __syncthreads() ; 
-   if(threadIdx.x == 0)
+   if(threadIdx.x == 0 )
    {
        best_val[threadIdx.y] = min_2 ;
        best_index[threadIdx.y] = index ;  
    }
    __syncthreads() ; 
-   if(threadIdx.y == 0 ){
+   if(threadIdx.y == 0){
        min_2 = best_val[threadIdx.x] ; 
        index = best_index[threadIdx.x] ; 
        best_in_warp(min_2, index) ;   
@@ -260,10 +311,12 @@ __global__ void find_matches(half2 *  dist, int size , uint32_t * matches, float
            val.x = 2 ; val.y = 2 ; 
            val = __hadd2 ( val, min_2 ) ;  
            val = h2sqrt(val) ; 
-           half t = __hdiv(val.x,val.y) ; 
-           if(__half2float(t) <  threshold)  
-           {
+           // values are amlost identical for the random values i use to test hmmm  
+           //printf("val x %f, val y %f \n", __half2float( val.x),  __half2float( val.y)) ; 
 
+           val.x = __hmul(val.x, __float2half_rn(threshold)) ; 
+           if(__hgt(val.y, val.x))
+           {
                matches[blockIdx.x] = index.x ; 
            }
            else
@@ -289,24 +342,23 @@ __device__ inline void min_half(__half2  &min_2, __half2 temp, int2 &index, int2
             temp_index.y -- ;
     }
 
-    //half2 val = __hgt2(min_2, temp) ; 
-    //if(val.x)
+   // half2 val = __hgt2(min_2, temp) ; 
     if(__hgt(min_2.x, temp.x))
+    //if(val.x)
     {
         min_2.x = temp.x ; 
         index.x = temp_index.x ; 
+        if(__hgt(min_2.y, temp.y))
+        //if(val.y)
+        {
+            min_2.y = temp.y ; 
+            index.y = temp_index.y ; 
+        }
     }
     else if(__hgt(min_2.y, temp.x))
     {
         min_2.y = temp.x ; 
         index.y = temp.y ; 
-    }
-
-    if(__hgt(min_2.y, temp.y))
-    //if(val.y)
-    {
-        min_2.y = temp.y ; 
-        index.y = temp_index.y ; 
     }
 }
 
@@ -317,6 +369,7 @@ __device__ inline void best_in_warp(__half2  &min_2, int2 &index)
     {          
         half2 temp = __shfl_down_sync( 0xffffffff, min_2, i );
         int index_x  = __shfl_down_sync( 0xffffffff, index.x, i );
+        // dont really need index_y hmm
         int index_y  = __shfl_down_sync( 0xffffffff, index.y, i );
 
         //half2 val = __hgt2(min_2, temp) ; 
@@ -325,18 +378,17 @@ __device__ inline void best_in_warp(__half2  &min_2, int2 &index)
         {
             min_2.x = temp.x ; 
             index.x = index_x ; 
+            if(__hgt(min_2.y, temp.y))
+            //if(val.y)
+            {
+                min_2.y = temp.y ; 
+                index.y = index_y ; 
+            }
         }
         else if(__hgt(min_2.y, temp.x))
         {
             min_2.y = temp.x ; 
             index.y = index_x ; 
-        }
-
-        if(__hgt(min_2.y, temp.y))
-        //if(val.y)
-        {
-            min_2.y = temp.y ; 
-            index.y = index_y ; 
         }
     }
 }
@@ -408,7 +460,7 @@ void cublas_2nn_brute_f(des_t_f * q_points, des_t_f * r_points, int q_n, int r_n
 // notes cublas works in colum major,, c++ is in row major :(  
 // meaning our input q_points and r_poins are already transpoed 
     // add minus 
-    float a = -1.f;
+    float a = -2.f;
     float b = 0.f;
  
    // we are in row major so we want our output from cublas to be in row major as well 
