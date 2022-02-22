@@ -3,8 +3,6 @@
 #include "cuda_fp16.h"
 #include "stdint.h"
 typedef  float des_t_f[128]; 
-  
-
 typedef __half2 des_t_h2[64]; 
 
 // gpu functions 

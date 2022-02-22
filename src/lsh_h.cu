@@ -2,7 +2,7 @@
 #include "curand_kernel.h"
 #include <string>
 #include "cublas_v2.h"
-#include "lsh.h"
+#include "lsh_h.h"
 #include "knn_brute.h"
 #include "helper.h"
 #include <algorithm>
@@ -395,6 +395,15 @@ __global__ void brute_2nn(float4 * sorted, int * index_r, int * index_q, int4 * 
         }
     }   
 }
+
+// main function 
+int lsh_gpu(void * q_points, void * r_points, int type, uint32_t q_n, uint32_t r_n, uint32_t * matches, float threshold, cublasHandle_t * handle, cudaStream_t * stream, int stream_n, int lsh_type)
+{
+    // fix data call next part 
+
+
+
+} 
 
 void lsh_test(des_t_f *q_points, des_t_f *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l, int max_dist, cublasHandle_t handle) 
 {  

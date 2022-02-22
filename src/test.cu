@@ -23,15 +23,13 @@ void test_half_float();
 #include <vector>
 #include <functional>
 
-
-
 int main(int argc, char *argv[])
 {
-   // test_float();
-
-    test_half_float() ; 
+    test_float();
+    //test_half_float() ; 
     return 0;
 }
+
 void test_float()
 {
     int dim = 128;
@@ -80,28 +78,28 @@ void test_float()
    // lsh_test(gpu_q_points, gpu_r_points, size_q, size_r, sorted_lsh, 25, 20, 0, handle);
     
 
-    cublas_2nn_sift(gpu_q_points, gpu_r_points, 1, size_q, size_r, matches, 0.8, handle, stream, stream_n); 
+    cublas_2nn_sift(q_points, r_points, 0, size_q, size_r, matches, 0.8, handle, stream, stream_n); 
     cudaDeviceSynchronize() ;
     //    cudaProfilerStop() ;
     //gpu_lsh(q_points, r_points, size_q, size_r, sorted_host, 4, 4, 2);
-    print_time(s, "cublas brute"); 
+   print_time(s, "cublas brute"); 
 
     s = start_timer() ; 
-   // printf("brute needs to compare %zu points \n", size_q * size_r ) ; 
+   //// printf("brute needs to compare %zu points \n", size_q * size_r ) ; 
 
-   // //host_brute(q_points,r_points,size_q,size_r, sorted_lsh) ;
-   //cublas_2nn_f(gpu_q_points,gpu_r_points,size_q,size_r, sorted_2nn, handle[0]) ;
+   //// //host_brute(q_points,r_points,size_q,size_r, sorted_lsh) ;
+   // cublas_2nn_f(gpu_q_points,gpu_r_points,size_q,size_r, sorted_2nn, handle[0]) ;
 
     cudaDeviceSynchronize() ;
    //device_brute(gpu_q_points,gpu_r_points,size_q,size_r, sorted_2nn) ;
    print_time(s, "float cublas burte") ; 
    int failed = 0 ; 
-   for (size_t i = 0; i < size_r; i++)
+   for (size_t i = 0; i < size_q; i++)
    {
        if(sorted_2nn[i].z != matches[i] )
        {
            failed ++ ; 
-           //printf("%f, %i \n", sorted_2nn[i].z, (int)matches[i]); 
+          // printf("%f, %i \n", sorted_2nn[i].z, (int)matches[i]); 
        }
    }
    printf("failed %i \n", failed); 
@@ -142,8 +140,8 @@ void test_float()
 void test_half_float()
 {
     int dim = 128;
-    int size_q = 2000000;
-    int size_r = 2000000;
+    int size_q = 10000;
+    int size_r = 100000;
 
     des_t_h *q_points;
     des_t_h *r_points;
@@ -163,8 +161,8 @@ void test_half_float()
     }
     
     
-    cudaMallocHost((void **)&q_points, size_q * sizeof(des_t_h2));
-    cudaMallocHost((void **)&r_points, size_r * sizeof(des_t_h2));
+    cudaMallocHost((void **)&q_points, size_q * sizeof(des_t_h2),  cudaHostAllocMapped);
+    cudaMallocHost((void **)&r_points, size_r * sizeof(des_t_h2),  cudaHostAllocMapped);
  
     cudaMalloc((void **)&gpu_q_points, size_q * sizeof(des_t_h2));
     cudaMalloc((void **)&gpu_r_points, size_r * sizeof(des_t_h2));

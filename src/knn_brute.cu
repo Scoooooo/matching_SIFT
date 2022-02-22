@@ -13,6 +13,12 @@ typedef struct{
    half2 z;
    half2 w;
 } half8;
+
+typedef enum {
+    FLOAT_HOST=0, 
+    FLOAT_DEVICE=1,
+    HALF_DEVICE=2,
+} type_mem  ;  
  
 // full half 2nn for sift 
 int cublas_2nn_sift(void * q_points, void * r_points, int type, uint32_t q_n, uint32_t r_n, uint32_t * matches, float threshold, cublasHandle_t * handle, cudaStream_t * stream, int stream_n)
@@ -23,17 +29,41 @@ int cublas_2nn_sift(void * q_points, void * r_points, int type, uint32_t q_n, ui
 
     des_t_h2 * R;  
 
-    // we have 3 possible inputs chars/floats/half_floats
+    // we have 2 possible inputs floats/half_floats if half it has to be in device memory if floats it can be device / host 
     // half will be fastest as we do not need to convert 
     // R needs to be in device memory and of type half2 since we use the whole array for every cublas call
     // for R size cublas wants r_n % 8 == 0 
-    // chars todo ?  
-    if (type == 0)
+
+    // floats in host memory  
+    // not very optimal 
+    // will just use zero copy for now assumese that memory is mapped and pinned 
+    // note for some reason this is faster than float_device some times hmmmmm   
+    if (type == FLOAT_HOST)
     {
-    
+        float * r_copy ; 
+        cudaHostGetDevicePointer(&r_copy, r_points, 0);
+        // check if we need to pad if we do we need to remake 
+        int pad_r_n = (r_n % 8) ;   
+        if( pad_r_n != 0)
+        {
+            
+            cudaMalloc((void **)&R,((8 - pad_r_n) + r_n) * sizeof(des_t_h2));
+            cudaMemset(R, 0, ((8 - pad_r_n) + r_n) * sizeof(des_t_h2)); 
+            // covert to halfs
+            float2half<<<r_n, 64>>>((float * )r_copy, (half2* )R) ; 
+            r_n += (8 - pad_r_n); 
+        }
+        else
+        {
+            cudaMalloc((void **)&R, r_n * sizeof(des_t_h2));
+            cudaMemset(R, 0, r_n * sizeof(des_t_h2)); 
+            // convert to halfs
+            float2half<<<r_n, 64>>>((float * )r_copy, (half2 * )R) ; 
+        }
+        cudaDeviceSynchronize() ; 
     }
-    // floats
-    else if (type == 1 )
+    // floats in device memory 
+    else if (type == FLOAT_DEVICE )
     {
         // check if we need to pad if we do we need to remake 
         int pad_r_n = (r_n % 8) ;   
@@ -41,7 +71,7 @@ int cublas_2nn_sift(void * q_points, void * r_points, int type, uint32_t q_n, ui
         {
             cudaMalloc((void **)&R,((8 - pad_r_n) + r_n) * sizeof(des_t_h2));
             cudaMemset(R, 0, ((8 - pad_r_n) + r_n) * sizeof(des_t_h2)); 
-            // fill
+            // covert to halfs
             float2half<<<r_n, 64>>>((float * )r_points, (half2* )R) ; 
             r_n += (8 - pad_r_n); 
         }
@@ -49,13 +79,13 @@ int cublas_2nn_sift(void * q_points, void * r_points, int type, uint32_t q_n, ui
         {
             cudaMalloc((void **)&R, r_n * sizeof(des_t_h2));
             cudaMemset(R, 0, r_n * sizeof(des_t_h2)); 
-            // fill
+            // convert to halfs
             float2half<<<r_n, 64>>>((float * )r_points, (half2 * )R) ; 
         }
          
     }
-    // halfs 
-    else
+    // halfs in device memory  
+    else if(type == HALF_DEVICE)
     {
         // check if we need to pad if we do we need to remake 
         int pad_r_n = (r_n % 8) ;   
@@ -76,13 +106,15 @@ int cublas_2nn_sift(void * q_points, void * r_points, int type, uint32_t q_n, ui
     size_t use = 4000000000 ; 
     // give us how many iterations we need to run  
     uint32_t new_q_n = use /((size_t) r_n * sizeof(half)); 
-    if(new_q_n > q_n)
+    
+    // if the whole dist array fits in memeory we just do it in one batch
+    if(new_q_n >= q_n)
     {
         new_q_n = q_n ; 
+        stream_n = 1 ; 
     }
-    printf("%i it \n", new_q_n) ; 
     
-    //get number if iterartions +- 1 
+    //get number of iterartions 
     int it = q_n / new_q_n;  
     // malloc for each stream 
     half2 * dist[stream_n] ;
@@ -96,21 +128,21 @@ int cublas_2nn_sift(void * q_points, void * r_points, int type, uint32_t q_n, ui
             cudaMallocAsync((void **)&Q[i], new_q_n * sizeof(des_t_h2), stream[i]); 
         }
     }
-    
 
-    printf("%i dist size in bytes  \n", (new_q_n * r_n * sizeof(half)) ) ; 
+
     int i = 0 ;  
     int stream_id = 0 ; 
+    // run batches 
     for (i = 0; i < it; i++)
     {
        // printf("int %i \n", i); 
-        if(type != 2)
+        if(type != HALF_DEVICE)
         {
-            cublas_2nn_sift_batch((des_t_f * )q_points + (i * new_q_n), Q[stream_id],  1 , R, new_q_n, r_n, dist[stream_id], matches + (i * new_q_n), threshold, handle[stream_id], stream[stream_id]); 
+            cublas_2nn_sift_batch((des_t_f * )q_points + (i * new_q_n), Q[stream_id],  type , R, new_q_n, r_n, dist[stream_id], matches + (i * new_q_n), threshold, handle[stream_id], stream[stream_id]); 
         } 
         else
         {
-            cublas_2nn_sift_batch((des_t_h2 * )q_points + (i * new_q_n), Q[stream_id],  0 , R, new_q_n, r_n, dist[stream_id], matches + (i * new_q_n), threshold, handle[stream_id], stream[stream_id]); 
+            cublas_2nn_sift_batch((des_t_h2 * )q_points + (i * new_q_n), Q[stream_id],  type , R, new_q_n, r_n, dist[stream_id], matches + (i * new_q_n), threshold, handle[stream_id], stream[stream_id]); 
         }
         stream_id ++ ; 
         if(stream_id == stream_n)
@@ -119,17 +151,18 @@ int cublas_2nn_sift(void * q_points, void * r_points, int type, uint32_t q_n, ui
         }
     }
 
+    // check if we got all or if there are any q points left 
     if((q_n % new_q_n ) > 0 )
     {
         int left =  q_n % new_q_n; 
         printf("left %i \n", left) ; 
-        if(type != 2)
+        if(type != HALF_DEVICE)
         {
-            cublas_2nn_sift_batch((des_t_f * )q_points + (i * new_q_n), Q[stream_id],  1 , R, left, r_n, dist[stream_id], matches + (i * new_q_n), threshold, handle[stream_id], stream[stream_id]); 
+            cublas_2nn_sift_batch((des_t_f * )q_points + (i * new_q_n), Q[stream_id],  type , R, left, r_n, dist[stream_id], matches + (i * new_q_n), threshold, handle[stream_id], stream[stream_id]); 
         }
         else
         {
-            cublas_2nn_sift_batch((des_t_h2 * )q_points + (i * new_q_n), Q[stream_id],  0 , R, left, r_n, dist[stream_id], matches + (i * new_q_n), threshold, handle[stream_id], stream[stream_id]); 
+            cublas_2nn_sift_batch((des_t_h2 * )q_points + (i * new_q_n), Q[stream_id],  type , R, left, r_n, dist[stream_id], matches + (i * new_q_n), threshold, handle[stream_id], stream[stream_id]); 
         }
     }
 
@@ -154,16 +187,24 @@ int cublas_2nn_sift_batch(void * q_points, des_t_h2 * Q, int type, des_t_h2 * R,
 
     //Q can be either in device or host memory and of half / float type  
 
-    //in device memory and of type half
-    if(type == 0)
+    //in Host memory type float 
+    if(type == FLOAT_HOST)
     {
-        Q = (des_t_h2 *)q_points ; 
+
+        float * q_copy ; 
+        cudaHostGetDevicePointer(&q_copy, q_points, 0);
+        float2half<<<q_n, 64,0, stream>>>((float * )q_copy, (half2 * )Q) ;
     }
     //in device memory but of type float
-    else if(type == 1)
+    else if(type == FLOAT_DEVICE)
     {
         // fill
         float2half<<<q_n, 64,0, stream>>>((float * )q_points, (half2 * )Q) ;
+    }
+    //in device memory and half
+    else if(type == HALF_DEVICE)
+    {
+        Q = (des_t_h2 *)q_points ; 
     }
 
     half a = -2.f;
