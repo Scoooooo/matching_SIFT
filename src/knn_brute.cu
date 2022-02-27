@@ -21,12 +21,20 @@ typedef enum {
 } type_mem  ;  
  
 // full half 2nn for sift 
-int cublas_2nn_sift(void * q_points, void * r_points, int type, uint32_t q_n, uint32_t r_n, uint32_t * matches, float threshold, cublasHandle_t * handle, cudaStream_t * stream, int stream_n)
+// make sure that gpu has memeory dist_size * number of streams 
+int cublas_2nn_sift(void * q_points, void * r_points, int type, uint32_t q_n, uint32_t r_n, uint32_t * matches, float threshold, cublasHandle_t handle, int stream_n)
 {
     size_t free_byte ;
     size_t total_byte ;
     cudaMemGetInfo( &free_byte, &total_byte ) ;
+    // make streams 
+    cudaStream_t stream[stream_n] ; 
 
+    for (int i = 0; i < stream_n; i++)
+    {
+      cudaStreamCreate(&stream[i]); 
+    }
+  
     des_t_h2 * R;  
 
     // we have 2 possible inputs floats/half_floats if half it has to be in device memory if floats it can be device / host 
@@ -37,7 +45,7 @@ int cublas_2nn_sift(void * q_points, void * r_points, int type, uint32_t q_n, ui
     // floats in host memory  
     // not very optimal 
     // will just use zero copy for now assumese that memory is mapped and pinned 
-    // note for some reason this is faster than float_device some times hmmmmm   
+    // note for some reason this is faster than float_device sometimes hmmmmm ?    
     if (type == FLOAT_HOST)
     {
         float * r_copy ; 
@@ -60,6 +68,7 @@ int cublas_2nn_sift(void * q_points, void * r_points, int type, uint32_t q_n, ui
             // convert to halfs
             float2half<<<r_n, 64>>>((float * )r_copy, (half2 * )R) ; 
         }
+        // not sure if i need to sync here 
         cudaDeviceSynchronize() ; 
     }
     // floats in device memory 
@@ -138,11 +147,11 @@ int cublas_2nn_sift(void * q_points, void * r_points, int type, uint32_t q_n, ui
        // printf("int %i \n", i); 
         if(type != HALF_DEVICE)
         {
-            cublas_2nn_sift_batch((des_t_f * )q_points + (i * new_q_n), Q[stream_id],  type , R, new_q_n, r_n, dist[stream_id], matches + (i * new_q_n), threshold, handle[stream_id], stream[stream_id]); 
+            cublas_2nn_sift_batch((des_t_f * )q_points + (i * new_q_n), Q[stream_id],  type , R, new_q_n, r_n, dist[stream_id], matches + (i * new_q_n), threshold, handle, stream[stream_id]); 
         } 
         else
         {
-            cublas_2nn_sift_batch((des_t_h2 * )q_points + (i * new_q_n), Q[stream_id],  type , R, new_q_n, r_n, dist[stream_id], matches + (i * new_q_n), threshold, handle[stream_id], stream[stream_id]); 
+            cublas_2nn_sift_batch((des_t_h2 * )q_points + (i * new_q_n), Q[stream_id],  type , R, new_q_n, r_n, dist[stream_id], matches + (i * new_q_n), threshold, handle, stream[stream_id]); 
         }
         stream_id ++ ; 
         if(stream_id == stream_n)
@@ -158,11 +167,11 @@ int cublas_2nn_sift(void * q_points, void * r_points, int type, uint32_t q_n, ui
         printf("left %i \n", left) ; 
         if(type != HALF_DEVICE)
         {
-            cublas_2nn_sift_batch((des_t_f * )q_points + (i * new_q_n), Q[stream_id],  type , R, left, r_n, dist[stream_id], matches + (i * new_q_n), threshold, handle[stream_id], stream[stream_id]); 
+            cublas_2nn_sift_batch((des_t_f * )q_points + (i * new_q_n), Q[stream_id],  type , R, left, r_n, dist[stream_id], matches + (i * new_q_n), threshold, handle, stream[stream_id]); 
         }
         else
         {
-            cublas_2nn_sift_batch((des_t_h2 * )q_points + (i * new_q_n), Q[stream_id],  type , R, left, r_n, dist[stream_id], matches + (i * new_q_n), threshold, handle[stream_id], stream[stream_id]); 
+            cublas_2nn_sift_batch((des_t_h2 * )q_points + (i * new_q_n), Q[stream_id],  type , R, left, r_n, dist[stream_id], matches + (i * new_q_n), threshold, handle, stream[stream_id]); 
         }
     }
 
@@ -183,14 +192,12 @@ int cublas_2nn_sift_batch(void * q_points, des_t_h2 * Q, int type, des_t_h2 * R,
    // singel for more accuracy but a bit slower 
    // cublasStatus_t stat = cublasGemmEx(handle, CUBLAS_OP_T, CUBLAS_OP_N, r_n, q_n, 128, &a, (half *)Q, CUDA_R_16F, 128, 
                             // (half *)R, CUDA_R_16F, 128, &b, (half * )dist,CUDA_R_16F, r_n, CUBLAS_COMPUTE_16F, CUBLAS_GEMM_DEFAULT_TENSOR_OP);
-   //cublasStatus_t stat = cublasSgemmEx(handle, CUBLAS_OP_T, CUBLAS_OP_N, r_n, q_n, 128, &a, (half *)Q, CUDA_R_16F, 128, (half *)R, CUDA_R_16F, 128, &b, (half *)dist,CUDA_R_16F, r_n);
 
     //Q can be either in device or host memory and of half / float type  
 
     //in Host memory type float 
     if(type == FLOAT_HOST)
     {
-
         float * q_copy ; 
         cudaHostGetDevicePointer(&q_copy, q_points, 0);
         float2half<<<q_n, 64,0, stream>>>((float * )q_copy, (half2 * )Q) ;
@@ -213,6 +220,7 @@ int cublas_2nn_sift_batch(void * q_points, des_t_h2 * Q, int type, des_t_h2 * R,
     //cublasStatus_t stat = 
     cublasHgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, r_n, q_n, 128, &a, (half *)R, 128, (half *)Q, 128, &b, (half *)dist, r_n);
     
+    // error 
     //if (stat != CUBLAS_STATUS_SUCCESS) {
     //    printf ("dot failed, cublas 2nn \n");
     //    cudaFree (dist);
@@ -221,8 +229,10 @@ int cublas_2nn_sift_batch(void * q_points, des_t_h2 * Q, int type, des_t_h2 * R,
     //} 
     // want to find min value for each dist array 
     dim3 gridSize(q_n,1,1) ;
+    // y dim can be changed 
     dim3 blockSize(32,8,1) ; 
     find_matches<<<gridSize,blockSize, 0, stream>>>(dist, r_n / 8, matches, threshold) ; 
+    //error 
    // cudaError_t cudaStat = cudaDeviceSynchronize();
 
    // if (cudaStat != cudaSuccess)
@@ -350,9 +360,9 @@ __global__ void find_matches(half2 *  dist, int size , uint32_t * matches, float
            // todo check threshold          
            half2 val ; 
            val.x = 2 ; val.y = 2 ; 
-           val = __hadd2 ( val, min_2 ) ;  
+           val = __hadd2( val, min_2 ) ;  
            val = h2sqrt(val) ; 
-           // values are amlost identical for the random values i use to test hmmm  
+           // values are amlost identical for the random values i use to test -> for big q and r alomost no matches pass   
            //printf("val x %f, val y %f \n", __half2float( val.x),  __half2float( val.y)) ; 
 
            val.x = __hmul(val.x, __float2half_rn(threshold)) ; 
@@ -434,6 +444,12 @@ __device__ inline void best_in_warp(__half2  &min_2, int2 &index)
     }
 }
 
+
+
+
+
+
+// this is for float and in general just worse than half but gives more accuracy i guess 
 // cublas brute for floats with 16 bit dot 
 // makes sure that we have enough memory  
 void cublas_2nn_f(des_t_f * q_points, des_t_f * r_points, int q_n, int r_n, float4  * sorted, cublasHandle_t handle)
@@ -533,6 +549,7 @@ void cublas_2nn_brute_f(des_t_f * q_points, des_t_f * r_points, int q_n, int r_n
  
 }
 
+// normal gpu brute, extremly slow 
 void device_brute(des_t_f * q_points, des_t_f * r_points, int q_n, int r_n, float4  * sorted)
 {
     // array of the distances between all q and r points 

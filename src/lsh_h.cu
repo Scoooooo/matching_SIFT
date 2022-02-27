@@ -23,31 +23,35 @@
 
 // makes random vectors used to hash 
 // atm this is not a very good soulution
-void make_vec(int dim, des_t_f &vec)
+void make_vec_h(int nbits, des_t_h2 * &vec)
 {
-    float * vector = vec ; 
-    for (size_t i = 0; i < dim; i++)
+    des_t_h2 * vector = vec ; 
+    for (int i = 0; i < nbits; i++)
     {
-     //   if(i == rand_vec_to_zero)
-     //   {
+        for (int ii = 0; ii < 64;  ii++)
+        {
+             //   if(i == rand_vec_to_zero)
+             //   {
 
-     //   vector[i] =  0 ;
-     //   }
-     //   else{
+             //   vector[i] =  0 ;
+             //   }
+             //   else{
 
-     //   vector[i] = (static_cast<float>(rand()) / static_cast<float>(RAND_MAX)) -0.5 ;
-     //   }
-        vector[i] = (static_cast<float>(rand()) / static_cast<float>(RAND_MAX)) -0.5 ;
-    } 
+             //   vector[i] = (static_cast<float>(rand()) / static_cast<float>(RAND_MAX)) -0.5 ;
+            ((half2 *) vector[i])[ii].x = __float2half((float) ((static_cast<float>(rand()) / static_cast<float>(RAND_MAX)) -0.5)) ;
+            ((half2 *) vector[i])[ii].y = __float2half((float) ((static_cast<float>(rand()) / static_cast<float>(RAND_MAX)) -0.5)) ;
+        }
+        /* code */
+    }
 }
 
-class IndexCompare
+class IndexCompare_int
 {
     thrust::counting_iterator<int> _index_copy;
     int* _code ;
 
 public:
-    IndexCompare( thrust::counting_iterator<int> index_copy, int* code)
+    IndexCompare_int( thrust::counting_iterator<int> index_copy, int* code)
         : _index_copy( index_copy)
         , _code( code)
     { }
@@ -84,7 +88,7 @@ void test_kernel(const char *  s, cudaError_t stat)
 // bucket[0][0] ......... bucket[0][l]
 // bucket[n][0] --------- bucket[n][l]
 //
-__global__ void set_bit(int *buckets, int nbits, float * dot)
+__global__ void set_bit(int * buckets, int nbits, float * dot)
 {
     uint32_t var = 0 ; 
     // index of the dot prouduct we need 
@@ -109,41 +113,66 @@ __global__ void set_bit(int *buckets, int nbits, float * dot)
        buckets[blockIdx.x] = var ;     
     }  
 }
+typedef struct{
+   half2 x;
+   half2 y;
+   half2 z;
+   half2 w;
+} half8;
 
 
-// not in use using cublas instead  
-//want dot array to be 
-// point 0 * rand [0][0 - nbits], .......   point n * rand [n][0 - nbits]
-// point n * rand [0][0 - nbits], .......   point n * rand [n][0 - nbits] 
-// 
-// want rand[n] to only be read by blocks on the same sm. load in shared memory  
-//  or want points[n ] to only be read by blocks on the same sm TODO  
-__global__ void dot_gpu(des_t_f *  rand, des_t_f * points, float *dot)
+// what i want is that each thread will read 4 half2, this will lead to 4 128 reads per warp  
+// 3 casese 8 16 32 
+// 8 -> 4 * 8 byte per -> meaning we would read for 32 dots at a time gving us peak perforamce for both read and write this is easy 
+// 16 -> 4 * 16 byte per -> need to read 2 points to get 128 byte per read this is not so easy, write directly to shared.... what to do for the one out of bounds ? hmmm  
+// 32 -> 
+
+//each thread will make its own value, this means we get both coalsed reads and writes 
+//one check will be done by  amout of bytes we have to read
+//so for 8 each thread will read 8 values or 16 bytes. 
+__global__ void set_bit_h(int * buckets, int nbits, half2 * dot)
 {
-    // called with 
-    // n, nbits, l grid  
-    //32 1 1 block 
-    // could change to 32, x ,1 block todo test if faster 
-    
-    float res = 0.f ; 
-    float4 a = ((float4 * )points[blockIdx.x])[threadIdx.x ];
-    // row major 
-    //float4 b = ((float4 * )rand[blockIdx.z * gridDim.y + blockIdx.y])[threadIdx.x]; 
-    float4 b ; 
+    uint32_t var = 0 ; 
+    extern __shared__ half2 dots_shared[];  
+    //index of the dot prouduct we need 
+    //int dot_idx = blockIdx.x * gridDim.y * blockDim.x  + blockIdx.y * blockDim.x + threadIdx.x ;    
+    // x, 1, 1
+    // 32, y, 1                       start of block             start of warp  
+    int warp_idx  = blockDim.x * blockDim.y * blockIdx.x + threadIdx.y * blockDim.x ; 
+    int idx = warp_idx + threadIdx.x ; 
 
-    // colom major  
-    b.x =  ((float *) rand) [(threadIdx.x * 4) * gridDim.y + blockIdx.y]; 
-    b.y =  ((float *) rand) [((threadIdx.x * 4) + 1) * gridDim.y + blockIdx.y]; 
-    b.z =  ((float *) rand) [((threadIdx.x * 4) + 2) * gridDim.y + blockIdx.y]; 
-    b.w =  ((float *) rand) [((threadIdx.x * 4) + 3) * gridDim.y + blockIdx.y]; 
-    res =
-        (a.x )*(b.x ) + (a.y )*(b.y ) +
-        (a.z )*(b.z ) + (a.w )*(b.w )  ;  
-    reduce(res) ; 
-    if(threadIdx.x == 0)
+    // the number of threads in the warp which will write to buckets 
+    int active_threads_warp = (( warp_idx + 32) < gridDim.x) ? 32 : (gridDim.x - warp_idx)  ;     
+    // how many half2s this warp will read 
+    //will be minus if we are out of bounds 
+    int to_read_warp = (nbits / 2) * active_threads_warp ;   
+
+    //offset within the block
+    int offset_block = threadIdx.y * blockDim.x * (nbits/2) ; 
+    // read to shared 
+    for (int i = threadIdx.x ; i < to_read_warp; i+=(32))
     {
-        dot[blockIdx.x * gridDim.y * gridDim.z + blockIdx.z * gridDim.y + blockIdx.y] = res ;     
-    }  
+        dots_shared[offset_block + i] = dot[warp_idx * (nbits/2) + i] ; 
+    }
+    // a thread will only read from the part which belongs to its own warp -> no need to sync block 
+    __syncwarp() ; 
+    if(threadIdx.x < active_threads_warp) 
+    {
+        half2 temp ; 
+        for (int i = 0; i < (nbits/2); i++)
+        {
+            temp = dots_shared[offset_block + threadIdx.x * (nbits/2) + i] 
+            if(__hgt(0.0, temp.x))
+            {
+                var |= 1 << i;
+            }
+            if(__hgt(0.0, temp.y))
+            {
+                var |= 1 << i;
+            }
+        }
+        buckets[warp_idx + threadIdx.x] = var ; 
+    }
 }
 
 // reduce float 
@@ -396,31 +425,272 @@ __global__ void brute_2nn(float4 * sorted, int * index_r, int * index_q, int4 * 
     }   
 }
 
+typedef enum {
+    FLOAT_HOST=0, 
+    FLOAT_DEVICE=1,
+    HALF_DEVICE=2,
+} type_mem  ;  
+
+typedef enum {
+    DOT_INT_BUCKET=0, 
+} lsh_type;  
+
+
+
+
 // main function 
-int lsh_gpu(void * q_points, void * r_points, int type, uint32_t q_n, uint32_t r_n, uint32_t * matches, float threshold, cublasHandle_t * handle, cudaStream_t * stream, int stream_n, int lsh_type)
+// should be called with 2/4 handels and streams 
+int lsh_gpu(void * q_points, void * r_points, int type, uint32_t q_n, uint32_t r_n, uint32_t * matches, float threshold, cublasHandle_t handle, cudaStream_t * stream, int stream_n, int l, int lsh_type, int nbits)
 {
-    // fix data call next part 
-
-
-
-} 
-
-void lsh_test(des_t_f *q_points, des_t_f *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l, int max_dist, cublasHandle_t handle) 
-{  
-    // see how much memory we have  
     size_t free_byte ;
     size_t total_byte ;
     cudaMemGetInfo( &free_byte, &total_byte ) ;
 
-    double free_db = (double)free_byte ;
-    double total_db = (double)total_byte ;
-    double used_db = total_db - free_db ;
+    // step 1: 
+    // fix data
+    // will be done in 2 streams  
+    des_t_h2 * R;  
+    des_t_h2 * Q;
 
-    printf("GPU memory usage: used = %f, free = %f MB, total = %f MB\n",
+    // we have 2 possible inputs floats/half_floats if half it has to be in device memory if floats it can be device / host 
+    // half will be fastest as we do not need to convert 
+    // R needs to be in device memory and of type half2 since we use the whole array for every cublas call
+    // for R size cublas wants r_n % 8 == 0 
 
-         used_db/1024.0/1024.0, free_db/1024.0/1024.0, total_db/1024.0/1024.0);
+    // floats in host memory  
+    // not very optimal 
+    // will just use zero copy for now assumese that memory is mapped and pinned 
+    // note for some reason this is faster than float_device some times hmmmmm   
+    if (type == FLOAT_HOST)
+    {
+        float * r_copy ; 
+        float * q_copy ; 
+        // pointer for zero copy
+        cudaHostGetDevicePointer(&r_copy, r_points, 0);
+        cudaHostGetDevicePointer(&q_copy, q_points, 0);
+        
+        // malloc R 
+        cudaMallocAsync((void **)&R, r_n * sizeof(des_t_h2), stream[0]);
+        float2half<<<r_n, 64, 0, stream[0]>>>((float * )r_copy, (half2 * )R) ; 
+
+        // malloc Q  
+        cudaMallocAsync((void **)&Q, q_n * sizeof(des_t_h2), stream[1]);
+        float2half<<<q_n, 64, 0, stream[1]>>>((float * )q_copy, (half2 * )Q) ; 
+    }
+    // floats in device memory 
+    else if (type == FLOAT_DEVICE )
+    {
+        // malloc R 
+        cudaMallocAsync((void **)&R, r_n * sizeof(des_t_h2), stream[0]);
+        float2half<<<r_n, 64, 0, stream[0]>>>((float * )r_points, (half2 * )R) ; 
+
+        // malloc Q  
+        cudaMallocAsync((void **)&Q, q_n * sizeof(des_t_h2), stream[1]);
+        float2half<<<q_n, 64, 0, stream[1]>>>((float * )q_points, (half2 * )Q) ; 
+                
+    }
+    // halfs in device memory, no need to do anything
+    else if(type == HALF_DEVICE)
+    {
+        // check if we need to pad if we do we need to remake 
+        R = (des_t_h2 * )r_points ; 
+        Q = (des_t_h2 *)q_points ; 
+    }
+
+    // 4 streams is all we need to be 100% sure that we use all the resorces we possibly can
+    // if we only run one iteration 4 streams are usless 
+    int stream_n;
+    if(l == 1)
+    {
+        stream_n = 2 ;
+    }
+    else stream_n = 4 ; 
+
+    // cublas want size which is size % 8 = 0 
+    // it also makes progrmaing easier 
+    // make % 4 or % 2 == 0 insted ? 
+    int rand_array_size ; 
+    if(nbits <= 8)
+    {
+        rand_array_size = 8 ; 
+    }
+    else if(nbits <= 16)
+    {
+        rand_array_size = 16 ; 
+    }
+    else
+    {
+        rand_array_size = 32 ; 
+    }
+    
+       
+    des_t_h2 *rand_array[stream_n/2] ;
+    // dot from random vector to q / r points 
+    half2 * dot_res_r[stream_n/2], * dot_res_q[stream_n/2];
+ 
+    // hash codes  
+    int *code_r[stream_n/2], *code_q[stream_n/2];
+
+    // index into bucket array and copy to sort 
+    int *index_r[stream_n/2], * index_q[stream_n/2]; 
+
+    // all buckets in use 
+    int *buckets_r[stream_n/2], *buckets_q[stream_n/2]; 
+
+    // size of each of the buckets 
+    int * buckets_r_size[stream_n/2], * buckets_q_size[stream_n/2] ;  
+
+    // used to reduce by key 
+    int * code_by_index_r[stream_n/2], * code_by_index_q[stream_n/2] ; 
+
+    // will give us index_copy[0 -> N] = 0 -> N  
+    // used to index into the buckets 
+    thrust::counting_iterator<int> index_copy(0);
+    
+    // will always give us 1 
+    // is used to both find number of elemets in each bucket and make an array of all in use buckets 
+    thrust::constant_iterator<int> array_of_ones(1) ; 
+
+    // a bucket of all the points each q has to check   
+    //int * neighbouring_buckets;
+
+    // thrust pointers for q r 
+    // todo check if we need thrust pointers 
+    thrust::device_ptr<int> ptr_q_index[stream_n/2];
+    thrust::device_ptr<int> ptr_r_index[stream_n/2];
+
+    thrust::device_ptr<int> ptr_code_by_index_q[stream_n/2] ; 
+    thrust::device_ptr<int> ptr_code_by_index_r[stream_n/2] ; 
+
+    thrust::device_ptr<int> ptr_code_q[stream_n/2];
+    thrust::device_ptr<int> ptr_code_r[stream_n/2];
+
+    thrust::device_ptr<int> ptr_buckets_q[stream_n/2]; 
+    thrust::device_ptr<int> ptr_buckets_r[stream_n/2]; 
+
+    thrust::device_ptr<int> ptr_buckets_q_size[stream_n/2] ; 
+    thrust::device_ptr<int> ptr_buckets_r_size[stream_n/2] ; 
+    
+    //malloc
+    for (int i = 0; i < stream_n/2; i++)
+    {
+        // called either by 0 or by 2  
+        //will use manged for now
+        //cudaMallocAsync((void **)&rand_array[i], sizeof(des_t_h2) * rand_array_size,stream[ i * 2] ) ; 
+        cudaMallocManaged((void **)&rand_array[i], sizeof(des_t_h2) * rand_array_size) ; 
+        cudaMemsetAsync(rand_array[i], 0, sizeof(des_t_h2) * rand_array_size, stream[i * 2]) ;  
+
+        cudaMallocAsync((void **)&index_q[i], sizeof(int) *q_n , stream[ i * 2] ) ; 
+        cudaMallocAsync((void **)&index_r[i], sizeof(int) *r_n , stream[ i * 2 + 1] ) ; 
+
+        cudaMallocAsync((void **)&code_q[i], sizeof(int) *q_n , stream[ i * 2] ) ; 
+        cudaMallocAsync((void **)&code_r[i], sizeof(int) *r_n , stream[ i * 2 + 1] ) ; 
+
+        cudaMallocAsync((void **)&dot_res_q[i], sizeof(half) *q_n * rand_array_size , stream[ i * 2] ) ; 
+        cudaMallocAsync((void **)&dot_res_r[i], sizeof(half) *r_n * rand_array_size , stream[ i * 2 + 1] ) ; 
+
+        cudaMallocAsync((void **)&buckets_q_size[i], sizeof(int) *q_n , stream[ i * 2] ) ; 
+        cudaMallocAsync((void **)&buckets_r_size[i], sizeof(int) *r_n , stream[ i * 2 + 1] ) ; 
+
+        cudaMallocAsync((void **)&buckets_q[i], sizeof(int) *q_n , stream[ i * 2] ) ; 
+        cudaMallocAsync((void **)&buckets_r[i], sizeof(int) *r_n , stream[ i * 2 + 1] ) ; 
+
+        cudaMallocAsync((void **)&code_by_index_q[i], sizeof(int) *q_n , stream[ i * 2] ) ; 
+        cudaMallocAsync((void **)&code_by_index_r[i], sizeof(int) *r_n , stream[ i * 2 + 1] ) ; 
+        
+        thrust::device_ptr<int> ptr_q_index[i] =  thrust::device_pointer_cast(index_q[i]) ;
+        thrust::device_ptr<int> ptr_r_index[i] =  thrust::device_pointer_cast(index_r[i]) ;
+
+        thrust::device_ptr<int> ptr_code_by_index_q[i] = thrust::device_pointer_cast(code_by_index_q[i]) ; 
+        thrust::device_ptr<int> ptr_code_by_index_r[i] = thrust::device_pointer_cast(code_by_index_r[i]) ; 
+
+        thrust::device_ptr<int> ptr_code_q[i] = thrust::device_pointer_cast(code_q[i]);
+        thrust::device_ptr<int> ptr_code_r[i] = thrust::device_pointer_cast(code_r[i]);
+
+        thrust::device_ptr<int> ptr_buckets_q[i] = thrust::device_pointer_cast(buckets_q[i]); 
+        thrust::device_ptr<int> ptr_buckets_r[i] = thrust::device_pointer_cast(buckets_r[i]); 
+ 
+        thrust::device_ptr<int> ptr_buckets_q_size[i] = thrust::device_pointer_cast(buckets_q_size[i]);
+        thrust::device_ptr<int> ptr_buckets_r_size[i] = thrust::device_pointer_cast(buckets_r_size[i]);
+    }
+
+    // for cublas  
+    half a = 1.0f;
+    half b = 0.0f;
+    
+    // use to keep track of the streams 
+
+    int stream_counter = 0 ; 
+    for (int L = 0; L < l; L++)
+    {
+        
+        // set index arrays  
+        thrust::copy(thrust::cuda::par.on(stream[stream_counter * 2]), index_copy, index_copy + q_n, index_q[stream_counter]) ;  
+        thrust::copy(thrust::cuda::par.on(stream[stream_counter * 2 + 1]), index_copy, index_copy + r_n, index_r[stream_counter]) ;  
+
+        //todo do on gpu 
+        for (int i = 0; i < nbits; i++)
+        {
+            make_vec_h(nbits, rand_array[stream_counter]);
+        }
+
+        cublasSetStream(handle, stream[stream_counter * 2]) ; 
+        cublasHgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, rand_array_size, q_n, 128, &a, (half *)rand_array, 128, (half *)Q, 128, &b, (half *)dot_res_q[stream_counter], rand_array_size);
+        dim3 grid_bit_q(q_n,1,1) ; 
+        dim3 block_bit_q(32,1,1) ; 
+        set_bit_h<<<grid_bit_q, block_bit_q, 0, stream[stream_counter * 2]>>>(code_q[stream_counter], nbits, dot_res_q[stream_counter]) ; 
+
+        cublasSetStream(handle, stream[stream_counter * 2 + 1]) ; 
+        cublasHgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, rand_array_size, r_n, 128, &a, (half *)rand_array, 128, (half *)R, 128, &b, (half *)dot_res_r[stream_counter], rand_array_size);
+        dim3 grid_bit_r(r_n,1,1) ; 
+        dim3 block_bit_r(32,1,1) ; 
+        set_bit_h<<<grid_bit_r, block_bit_r, 0, stream[stream_counter * 2 + 1]>>>(code_r[stream_counter], nbits, dot_res_r[stream_counter]) ; 
+        
+        IndexCompare_int code_r_sort(index_copy, code_r[stream_counter]);
+        IndexCompare_int code_q_sort(index_copy, code_q[stream_counter]);
+
+
+
+        // will have to use c++ threads because i need the output of reduce by key 
+        // sort and reduce for q buckets 
+        thrust::sort(thrust::cuda::par.on(stream[stream_counter * 2]), ptr_q_index[stream_counter], ptr_q_index[stream_counter] + q_n, code_q_sort);
+        thrust::gather(thrust::cuda::par.on(stream[stream_counter * 2]), ptr_q_index[stream_counter], ptr_q_index[stream_counter] + q_n, ptr_code_q[stream_counter], ptr_code_by_index_q[stream_counter]) ; 
+        auto new_end_q = thrust::reduce_by_key(thrust::cuda::par.on(stream[stream_counter * 2]), ptr_code_by_index_q[stream_counter], ptr_code_by_index_q[stream_counter]+ q_n,
+                        array_of_ones, ptr_buckets_q[stream_counter], ptr_buckets_q_size[stream_counter]) ; 
+
+        // sort and reduce for r buckets  
+        thrust::sort(thrust::cuda::par.on(stream[stream_counter * 2 + 1]), ptr_r_index[stream_counter], ptr_r_index[stream_counter] + r_n, code_r_sort);
+        thrust::gather(thrust::cuda::par.on(stream[stream_counter * 2 + 1]), ptr_r_index[stream_counter], ptr_r_index[stream_counter] + r_n, ptr_code_q[stream_counter], ptr_code_by_index_r[stream_counter]) ; 
+        auto new_end_r = thrust::reduce_by_key(thrust::cuda::par.on(stream[stream_counter * 2 + 1]), ptr_code_by_index_r[stream_counter], ptr_code_by_index_r[stream_counter]+ r_n, 
+                        array_of_ones, ptr_buckets_r[stream_counter], ptr_buckets_r_size[stream_counter]) ; 
+
+
+        // hmm is this safe lets hope so 
+
+        int n_r_buckets = new_end_r.first - (ptr_buckets_r[stream_counter]) ; 
+        int n_q_buckets = new_end_q.first - (ptr_buckets_q[stream_counter]) ; 
+
+
+        // use thrust lower bound 
+        //will give us the first value where we can insert without destroying order  
+
+
+
+        // what we need size / start of both  
+        //waiting for new end hmmm 
+
+
+
+    
+    }
     
 
+    return 0 ; 
+} 
+
+void lsh_test(des_t_f *q_points, des_t_f *r_points, int n_q, int n_r, float4 *sorted, int nbits, int l, int max_dist, cublasHandle_t handle) 
+{  
+   
     int size_bucket = 0 ;
     if(max_dist == 1)
     {
@@ -430,101 +700,14 @@ void lsh_test(des_t_f *q_points, des_t_f *r_points, int n_q, int n_r, float4 *so
         size_bucket = ((nbits * (nbits -1 )) / 2) + nbits ;  
     }
 
-    // not accurate atm
-    //printf("we need %i mb of space ",(((n_r * 4 * 4)+ (n_q * 4 * 4) + sizeof(int) * n_q * size_bucket) + nbits * 4 * n_q + nbits * 4 * n_r + 4 * 128 * nbits) / 1024 ) ; 
-
-    // arry of vectors 
-    des_t_f *rand_array;
-
-    // hash codes  
-    int *code_r, *code_q;
-
-    // index into bucket array and copy to sort 
-    int *index_r, * index_q; 
-
-    // all buckets in use 
-    int *buckets_r, *buckets_q; 
-
-    // size of each of the buckets 
-    int * buckets_r_size, * buckets_q_size ;  
-
-    // used to reduce by key 
-    int * code_by_index_r, * code_by_index_q ; 
-    // will give us index_copy[0 -> N] = 0 -> N  
-    // used to index into the buckets 
-    thrust::counting_iterator<int> index_copy(0);
-    
-    // will always give us 1 
-    // is used to both find number of elemets in each bucket and make an array of all in use buckets 
-    thrust::constant_iterator<int> array_of_ones(1) ; 
-
-    // dot from random vector to q / r points 
-    float * dot_res_r, * dot_res_q;
- 
-    // a bucket of all the points each q has to check   
-    int *neighbouring_buckets;
-    // number of buckets within hamming distance r given n bits
-    //malloc
-    cudaMallocManaged((void **)&neighbouring_buckets, sizeof(int) * n_q * size_bucket);
-
-    cudaMallocManaged((void **)&rand_array, sizeof(des_t_f) * nbits);
-
-    cudaMallocManaged((void **)&index_r, sizeof(int) * n_r);  
-    cudaMallocManaged((void **)&index_q, sizeof(int) * n_q);  
- 
-    cudaMallocManaged((void **)&code_r, sizeof(int) * n_r);
-    cudaMallocManaged((void **)&code_q, sizeof(int) * n_q);
-
-    cudaMallocManaged((void **)&dot_res_r, nbits * n_r* sizeof(float)); 
-    cudaMallocManaged((void **)&dot_res_q, nbits * n_q* sizeof(float));
-
-    cudaMallocManaged((void **)&buckets_r_size, sizeof(int) * n_r);
-    cudaMallocManaged((void **)&buckets_r, sizeof(int) * n_r);
-    cudaMallocManaged((void **)&code_by_index_r, sizeof(int) * n_r);
-    
-    cudaMallocManaged((void **)&buckets_q_size, sizeof(int) * n_q);
-    cudaMallocManaged((void **)&buckets_q, sizeof(int) * n_q);
-    cudaMallocManaged((void **)&code_by_index_q, sizeof(int) * n_q);
-
-    //fill sorted with MAXFLOAT 
-    thrust::fill(thrust::device,(float * )sorted,(float*)( sorted + n_q * 4), MAXFLOAT) ; 
-
-    // cublas 
-    float a = 1.0f;
-    float b = 0.0f;
-    
-    IndexCompare code_r_sort(index_copy, code_r);
-    IndexCompare code_q_sort(index_copy, code_q);
-    // thrust pointers for q 
-    // todo check if we need thrust pointers 
-    thrust::device_ptr<int> ptr_q_index = thrust::device_pointer_cast(index_q);
-    thrust::device_ptr<int> ptr_code_by_index_q = thrust::device_pointer_cast(code_by_index_q);
-    thrust::device_ptr<int> ptr_code_q = thrust::device_pointer_cast(code_q);
-    thrust::device_ptr<int> ptr_buckets_q = thrust::device_pointer_cast(buckets_q);
-    thrust::device_ptr<int> ptr_buckets_q_size = thrust::device_pointer_cast(buckets_q_size);
-    // thrust pointers for r
-    thrust::device_ptr<int> ptr_r_index = thrust::device_pointer_cast(index_r);
-    thrust::device_ptr<int> ptr_code_by_index_r = thrust::device_pointer_cast(code_by_index_r);
-    thrust::device_ptr<int> ptr_code_r = thrust::device_pointer_cast(code_r);
-    thrust::device_ptr<int> ptr_buckets_r = thrust::device_pointer_cast(buckets_r);
-    thrust::device_ptr<int> ptr_buckets_r_size = thrust::device_pointer_cast(buckets_r_size);
-    for (int L = 0; L < l; L++)
+   // thrust pointers for q 
+   for (int L = 0; L < l; L++)
     {
         // memsetstuff
         cudaMemset(neighbouring_buckets, 0, sizeof(int) * n_q * size_bucket);
 
         // set index arrays  
-        thrust::copy(index_copy,index_copy+ n_q,index_q) ;  
-        thrust::copy(index_copy,index_copy+ n_r,index_r) ;  
-
-        // todo random vectos gpu curand / thrust 
-       // make random vectors
-        for (int i = 0; i < nbits; i++)
-        {
-            make_vec(128, rand_array[i]);
-        }
-       
-        // dot random vectors with n_r
+       // dot random vectors with n_r
         // using cublas
         //dim3 grid_dot_r(n_r, nbits, 1) ;
         //dim3 block_dot_r(32, 1, 1) ;   
@@ -532,7 +715,6 @@ void lsh_test(des_t_f *q_points, des_t_f *r_points, int n_q, int n_r, float4 *so
 
         //cublas dot
         // note the rand array is read as colum major not row major 
-        cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, nbits, n_r, 128, &a, (float *)rand_array, nbits, (float *)r_points, 128, &b, dot_res_r, nbits);
 
         
         // set bit for code_r 
@@ -553,20 +735,6 @@ void lsh_test(des_t_f *q_points, des_t_f *r_points, int n_q, int n_r, float4 *so
         dim3 grid_bit_q(n_r,1,1) ; 
         dim3 block_bit_q(32,1,1) ; 
         set_bit<<<grid_bit_q, block_bit_q>>>(code_q, nbits, dot_res_q) ; 
-
-
-        // sort and reduce for r buckets  
-        thrust::sort(ptr_r_index, ptr_r_index + n_r, code_r_sort );
-        thrust::gather(thrust::device, ptr_r_index, ptr_r_index + n_r, ptr_code_r, ptr_code_by_index_r) ; 
-        auto new_end_r = thrust::reduce_by_key( ptr_code_by_index_r, ptr_code_by_index_r+ n_r, array_of_ones, ptr_buckets_r, ptr_buckets_r_size) ; 
-
-        // sort and reduce for q buckets 
-        thrust::sort(ptr_q_index, ptr_q_index + n_q, code_q_sort );
-        thrust::gather(thrust::device, ptr_q_index, ptr_q_index + n_q, ptr_code_q, ptr_code_by_index_q) ; 
-        auto new_end_q = thrust::reduce_by_key( ptr_code_by_index_q, ptr_code_by_index_q+ n_q, array_of_ones, ptr_buckets_q, ptr_buckets_q_size) ; 
-
-        int n_r_buckets = new_end_r.first - (ptr_buckets_r) ; 
-        int n_q_buckets = new_end_q.first - (ptr_buckets_q) ; 
 
         // todo fix dist only need dist one  
        // if(max_dist > 0){
@@ -607,7 +775,8 @@ void lsh_test(des_t_f *q_points, des_t_f *r_points, int n_q, int n_r, float4 *so
         int4 * index_size_start ; 
         cudaMallocManaged((void **) &index_size_start, sizeof(int) * n_q_buckets) ; 
         int counter = 0 ;  
-        // can this be done on gpu ? threads ? todo 
+        // can this be done on gpu ? todo 
+
         while (count_q < n_q_buckets && count_r < n_r_buckets)
         {
             if(buckets_q[count_q] == buckets_r[count_r])

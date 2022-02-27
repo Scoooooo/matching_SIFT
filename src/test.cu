@@ -33,8 +33,8 @@ int main(int argc, char *argv[])
 void test_float()
 {
     int dim = 128;
-    int size_q = 1000000;
-    int size_r = 1000000;
+    int size_q = 5000;
+    int size_r = 10000 ;
 
     des_t_f *q_points;
     des_t_f *r_points;
@@ -46,15 +46,9 @@ void test_float()
     float4 *sorted_2nn;
     //make streams/ handels 
     int stream_n = 2 ; 
-    cudaStream_t stream[stream_n] ; 
-    cublasHandle_t handle[stream_n];
-    for (int i = 0; i < stream_n; i++)
-    {
-      cublasCreate(&handle[i]);
-      cudaStreamCreate(&stream[i]); 
-    }
-  
-    
+    cublasHandle_t handle;
+    cublasCreate(&handle);
+ 
     uint32_t * matches ; 
     cudaMallocManaged((void **)&matches, size_q * sizeof(uint32_t));
     
@@ -78,17 +72,17 @@ void test_float()
    // lsh_test(gpu_q_points, gpu_r_points, size_q, size_r, sorted_lsh, 25, 20, 0, handle);
     
 
-    cublas_2nn_sift(q_points, r_points, 0, size_q, size_r, matches, 0.8, handle, stream, stream_n); 
+    cublas_2nn_sift(q_points, r_points, 0, size_q, size_r, matches, 0.8, handle, stream_n); 
     cudaDeviceSynchronize() ;
     //    cudaProfilerStop() ;
-    //gpu_lsh(q_points, r_points, size_q, size_r, sorted_host, 4, 4, 2);
+ //   lsh_test(gpu_q_points, gpu_r_points, size_q, size_r, sorted_2nn, 15 , 10, 0, handle[0]);
    print_time(s, "cublas brute"); 
 
     s = start_timer() ; 
    //// printf("brute needs to compare %zu points \n", size_q * size_r ) ; 
 
    //// //host_brute(q_points,r_points,size_q,size_r, sorted_lsh) ;
-   // cublas_2nn_f(gpu_q_points,gpu_r_points,size_q,size_r, sorted_2nn, handle[0]) ;
+   // cublas_2nn_f(gpu_q_points,gpu_r_points,size_q,size_r, sorted_2nn, handle) ;
 
     cudaDeviceSynchronize() ;
    //device_brute(gpu_q_points,gpu_r_points,size_q,size_r, sorted_2nn) ;
@@ -128,6 +122,7 @@ void test_float()
    //     
    // }
     //printf("found %i out of %i nn \n",((size_q * 2)- failed),(size_q *2) ) ; 
+    cublasDestroy(handle) ; 
     cudaFree(gpu_q_points); 
     cudaFree(gpu_r_points); 
     cudaFree(q_points); 
@@ -152,14 +147,9 @@ void test_half_float()
     uint32_t * matches ; 
     //make streams/ handels 
     int stream_n = 2 ; 
-    cudaStream_t stream[stream_n] ; 
-    cublasHandle_t handle[stream_n];
-    for (int i = 0; i < stream_n; i++)
-    {
-      cublasCreate(&handle[i]);
-      cudaStreamCreate(&stream[i]); 
-    }
-    
+    cublasHandle_t handle;
+    cublasCreate(&handle);
+   
     
     cudaMallocHost((void **)&q_points, size_q * sizeof(des_t_h2),  cudaHostAllocMapped);
     cudaMallocHost((void **)&r_points, size_r * sizeof(des_t_h2),  cudaHostAllocMapped);
@@ -184,7 +174,7 @@ void test_half_float()
     //gpu_lsh(q_points, r_points, size_q, size_r, sorted_host, 4, 4, 2);
     print_time(s, "gpu lsh"); 
     s = start_timer() ; 
-    cublas_2nn_sift(gpu_q_points, gpu_r_points, 2, size_q, size_r, matches, 0.999, handle, stream, stream_n); 
+    cublas_2nn_sift(gpu_q_points, gpu_r_points, 2, size_q, size_r, matches, 0.999, handle, stream_n); 
 
     cudaDeviceSynchronize() ;
     printf("brute needs to compare %zu points \n", size_q * size_r ) ; 

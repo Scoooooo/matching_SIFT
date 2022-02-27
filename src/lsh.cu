@@ -41,13 +41,13 @@ void make_vec(int dim, des_t_f &vec)
     } 
 }
 
-class IndexCompare
+class IndexCompare_int
 {
     thrust::counting_iterator<int> _index_copy;
     int* _code ;
 
 public:
-    IndexCompare( thrust::counting_iterator<int> index_copy, int* code)
+    IndexCompare_int( thrust::counting_iterator<int> index_copy, int* code)
         : _index_copy( index_copy)
         , _code( code)
     { }
@@ -484,8 +484,8 @@ void lsh_test(des_t_f *q_points, des_t_f *r_points, int n_q, int n_r, float4 *so
     float a = 1.0f;
     float b = 0.0f;
     
-    IndexCompare code_r_sort(index_copy, code_r);
-    IndexCompare code_q_sort(index_copy, code_q);
+    IndexCompare_int code_r_sort(index_copy, code_r);
+    IndexCompare_int code_q_sort(index_copy, code_q);
     // thrust pointers for q 
     // todo check if we need thrust pointers 
     thrust::device_ptr<int> ptr_q_index = thrust::device_pointer_cast(index_q);
@@ -544,7 +544,6 @@ void lsh_test(des_t_f *q_points, des_t_f *r_points, int n_q, int n_r, float4 *so
         dim3 grid_bit_q(n_r,1,1) ; 
         dim3 block_bit_q(32,1,1) ; 
         set_bit<<<grid_bit_q, block_bit_q>>>(code_q, nbits, dot_res_q) ; 
-
 
         // sort and reduce for r buckets  
         thrust::sort(ptr_r_index, ptr_r_index + n_r, code_r_sort );
