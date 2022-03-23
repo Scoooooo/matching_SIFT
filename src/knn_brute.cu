@@ -2,7 +2,6 @@
 #include "knn_brute.h"
 #include <string>
 #include "cublas_v2.h"
-#include "lsh.h"
 #include "knn_brute.h"
 #include "helper.h"
 #include "cuda_fp16.h"
@@ -43,9 +42,8 @@ int cublas_2nn_sift(void * q_points, void * r_points, int type, uint32_t q_n, ui
     // for R size cublas wants r_n % 8 == 0 
 
     // floats in host memory  
-    // not very optimal 
     // will just use zero copy for now assumese that memory is mapped and pinned 
-    // note for some reason this is faster than float_device sometimes hmmmmm ?    
+    // note for some reason this is faster than float_device sometimes ?    
     if (type == FLOAT_HOST)
     {
         float * r_copy ; 
@@ -164,7 +162,7 @@ int cublas_2nn_sift(void * q_points, void * r_points, int type, uint32_t q_n, ui
     if((q_n % new_q_n ) > 0 )
     {
         int left =  q_n % new_q_n; 
-        printf("left %i \n", left) ; 
+        //printf("left %i \n", left) ; 
         if(type != HALF_DEVICE)
         {
             cublas_2nn_sift_batch((des_t_f * )q_points + (i * new_q_n), Q[stream_id],  type , R, left, r_n, dist[stream_id], matches + (i * new_q_n), threshold, handle, stream[stream_id]); 
@@ -300,8 +298,6 @@ __global__ void find_matches(half2 *  dist, int size , uint32_t * matches, float
     min_2.x = 0.0f; 
     min_2.y = 0.0f; 
    
-    //  maybe better to read values first, however compiler may just be doing it for me
-
     for (int i = 0; (i + threadIdx.x +  threadIdx.y * blockDim.x  ) < size ; i+= (blockDim.x * blockDim.y) )
     //for (int i = 0; (i + threadIdx.x) < size ; i+= (blockDim.x * blockDim.y) )
     {   
@@ -362,7 +358,7 @@ __global__ void find_matches(half2 *  dist, int size , uint32_t * matches, float
            val.x = 2 ; val.y = 2 ; 
            val = __hadd2( val, min_2 ) ;  
            val = h2sqrt(val) ; 
-           // values are amlost identical for the random values i use to test -> for big q and r alomost no matches pass   
+           // values are amlost identical for the random values i use to test -> for big q and r no matches pass   
            //printf("val x %f, val y %f \n", __half2float( val.x),  __half2float( val.y)) ; 
 
            val.x = __hmul(val.x, __float2half_rn(threshold)) ; 
@@ -375,6 +371,9 @@ __global__ void find_matches(half2 *  dist, int size , uint32_t * matches, float
                
                matches[blockIdx.x] = UINT32_MAX  ; 
            }
+            //remove this line for threhold to be of any use 
+            // for noe we ingnoer the whole threshold thing 
+            matches[blockIdx.x] = index.x ; 
        }
     }
 }
@@ -409,7 +408,7 @@ __device__ inline void min_half(__half2  &min_2, __half2 temp, int2 &index, int2
     else if(__hgt(min_2.y, temp.x))
     {
         min_2.y = temp.x ; 
-        index.y = temp.y ; 
+        index.y = temp_index.y ; 
     }
 }
 
