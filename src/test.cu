@@ -34,7 +34,7 @@ void test_float()
 {
     int dim = 128;
     int size_q = 10000;
-    int size_r = 1000000 ;
+    int size_r = 1000000;
 
     des_t_f *q_points;
     des_t_f *r_points;
@@ -82,7 +82,7 @@ void test_float()
  
      s = start_timer();
 
-    lsh_gpu(gpu_q_points, gpu_r_points, 1, size_q, size_r, matches_lsh, 0.8, handle, 2, 1, 0, 32); 
+    lsh_gpu(gpu_q_points, gpu_r_points, 1, size_q, size_r, matches_lsh, 0.8, handle, 16, 20, 0, 16); 
     
     cudaDeviceSynchronize() ;
     //    cudaProfilerStop() ;

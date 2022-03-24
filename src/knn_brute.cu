@@ -111,7 +111,8 @@ int cublas_2nn_sift(void * q_points, void * r_points, int type, uint32_t q_n, ui
     // number of bytes to we want for output array  
     // probly difrent for difrent gpus 
     size_t use = 4000000000 ; 
-    // give us how many iterations we need to run  
+
+    // give us how many iterations we need to run with the number of bytes we want
     uint32_t new_q_n = use /((size_t) r_n * sizeof(half)); 
     
     // if the whole dist array fits in memeory we just do it in one batch
@@ -173,6 +174,7 @@ int cublas_2nn_sift(void * q_points, void * r_points, int type, uint32_t q_n, ui
         }
     }
 
+    // free
     for (int i = 0; i < stream_n; i++)
     {
         cudaFreeAsync(dist[i], stream[i]);

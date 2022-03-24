@@ -6,7 +6,6 @@
 #include "lsh_h.h"
 #include "helper.h"
 #include <algorithm>
-
 #include "cuda_fp16.h"
 
 // make random data 
@@ -52,31 +51,9 @@ void make_vec_h(int nbits, des_t_h2 * vec)
         /* code */
     }
 }
-//__device__  inline void set_sorted_h(min2_index * min2, int q_index, half2 temp, uint32_t best_idx, uint32_t * matches)
-//{
-//   min2_index global_val = min2[q_index];   
-//   
-//   // half2 val = __hgt2(min_2, temp) ; 
-//   if(__hgt(global_val.min2.x, temp.x))
-//   //if(val.x)
-//   {
-//       global_val.min2.x = temp.x ; 
-//       global_val.index = best_idx ; 
-//       if(__hgt(global_val.min2.y, temp.y))
-//       //if(val.y)
-//       {
-//           global_val.min2.y = temp.y ; 
-//       }
-//   }
-//   else if(__hgt(global_val.min2.y, temp.x))
-//   {
-//       global_val.min2.y = temp.x ; 
-//   }
-//
-//   min2[q_index] = global_val ;  
-////    matches[q_index] = min2[q_index].index; 
-//}
 
+// todo fix equal case 
+// uses atomiccas to update the min_2_index array which multiple streams will read/wrtie to at the same time
 __device__ inline void atomic_min2_update(min2_index * min_2_index, half2 min2, uint32_t idx, int index, uint32_t * matches)
 {
     // use to test 
@@ -90,32 +67,19 @@ __device__ inline void atomic_min2_update(min2_index * min_2_index, half2 min2, 
         // do our update acording to the values we have atm 
         
         if(__hgt(min2_test.min_index.min2.x, min2.x))
-        // if(__hgt( ((half2 *)(&min2_test))[0].x, min2.x))
         {
-            // ((half2 *)(&min2_test))[0].x = min2.x ; 
             min2_new.min_index.min2.x= min2.x ; 
             min2_new.min_index.index= idx ; 
-           // ((uint32_t *)(&min2_test))[1] = idx ; 
-            //
-  //         matches[index] = idx ; 
-//         printf("%i ==  \n", min2_test.index[1]) ; 
 
-            // if(__hgt( ((half2 *)(&min2_test))[0].y, min2.y))
             if(__hgt(min2_test.min_index.min2.y, min2.y))
             {
-                // ((half2 *)(&min2_test))[0].y = min2.y ; 
-            //    min2_new.min2.y = min2.y ; 
                min2_new.min_index.min2.y = min2.y; 
             }
         }
 
-        // else if(__hgt( ((half2 *)(&min2_test))[0].y, min2.x))
         else if(__hgt(min2_test.min_index.min2.y, min2.x))
         {
-
             min2_new.min_index.min2.y = min2.x; 
-            // ((half2 *)(&min2_test))[0].x = min2.y ; 
-        //    min2_new.min2.x = min2.y ; 
         }
         
         old = atomicCAS(address, min2_test.ulong,  min2_new.ulong);
@@ -123,6 +87,7 @@ __device__ inline void atomic_min2_update(min2_index * min_2_index, half2 min2, 
     while (old != min2_test.ulong);
 }
 
+// class used to sort 
 class IndexCompare_int
 {
     thrust::counting_iterator<int> _index_copy;
@@ -143,6 +108,9 @@ public:
 
 // Q/32 + 1 ,1 ,1 
 //32 1, 1
+
+// reads the values from the min2 array checks if it is over the threshold and set the matches array 
+// todo 
 __global__ void set_matches(min2_index * min2, uint32_t * matches, int size)
 {   
     // int idx  = blockDim.x * blockDim.y * blockIdx.x + threadIdx.y * blockDim.x + threadIdx.x ; 
@@ -154,6 +122,62 @@ __global__ void set_matches(min2_index * min2, uint32_t * matches, int size)
 
         matches[idx] = min2[idx].min_index.index ; 
     }
+}
+
+
+//sets n bits for each value 
+__global__ void set_bit_h_n(int * buckets, int nbits, half2 * dot, int size, int bits_per_vectors)
+{
+    uint32_t var = 0 ; 
+    extern __shared__ half2 dots_shared[];  
+    //index of the dot prouduct we need 
+    //int dot_idx = blockIdx.x * gridDim.y * blockDim.x  + blockIdx.y * blockDim.x + threadIdx.x ;    
+    // x, 1, 1
+    // 32, y, 1                       start of block             start of warp  
+    int warp_idx  = blockDim.x * blockDim.y * blockIdx.x + threadIdx.y * blockDim.x ; 
+    //int idx = warp_idx + threadIdx.x ; 
+
+    // the number of threads in the warp which will write to buckets 
+    int active_threads_warp = (( warp_idx + 32) < size) ? 32 : (size - warp_idx)  ;     
+    // how many half2s this warp will read 
+    //will be minus if we are out of bounds 
+    int to_read_warp = (nbits / 2) * active_threads_warp ;   
+
+    //offset within the block
+    int offset_block = threadIdx.y * blockDim.x * (nbits/2) ; 
+    // read to shared 
+
+    for (int i = threadIdx.x ; i < to_read_warp; i+=(32))
+    {
+        dots_shared[offset_block + i] = dot[warp_idx * (nbits/2) + i] ; 
+    }
+    // a thread will only read from the part which belongs to its own warp -> no need to sync block 
+    __syncwarp() ; 
+    if(threadIdx.x < active_threads_warp) 
+    {
+        half2 temp ; 
+        for (int i = 0; i < (nbits/2); i++)
+        {
+            temp = dots_shared[offset_block + threadIdx.x * (nbits/2) + i] ; 
+          //  if(threadIdx.x == 0 && threadIdx.y == 0){
+
+          //    //  printf("1  =  %f  2 = %f\n", __half2float(temp.x),  __half2float(temp.y) ) ; 
+          //  }
+          // for each value we have to set the bits according to some rule
+            if(__hgt(0.0, temp.x))
+            {
+                var |= 1UL << (i * 2);
+            }
+
+            if(__hgt(0.0, temp.y))
+            {
+                var |= 1UL << (i * 2 + 1) ;
+            }
+        }
+//        printf("%i var \n", var) ; 
+        buckets[warp_idx + threadIdx.x] = var ; 
+    }
+
 }
 
 //each thread will make its own value, this means we get both coalsed reads and writes 
@@ -433,17 +457,6 @@ void lsh_thread_dot_sort_reduce(des_t_h2 * points, uint32_t size, des_t_h2 * ran
 
     thrust::device_ptr<int> ptr_index =  thrust::device_pointer_cast(index_dev) ;
 
-
-//    thrust::device_ptr<int> ptr_code_by_index = thrust::device_pointer_cast(code_by_index) ; 
-//
-//    thrust::device_ptr<int> ptr_code = thrust::device_pointer_cast(code);
-//
-//    thrust::device_ptr<int> ptr_buckets = thrust::device_pointer_cast(buckets); 
-// 
-//    thrust::device_ptr<int> ptr_buckets_size = thrust::device_pointer_cast(buckets_size) ;
-   
-    // sort and reduce  
-
     thrust::sort(thrust::cuda::par.on(stream), ptr_index, ptr_index + size, code_sort);
 
     cudaMemcpyAsync(index_host, index_dev, sizeof(int) * size, cudaMemcpyDeviceToHost, stream);
@@ -551,7 +564,7 @@ void lsh_thread(des_t_h2 * R, des_t_h2 * Q, uint32_t q_n, uint32_t r_n, uint32_t
    // cudaMallocAsync((void **)&brute_dev, sizeof(int4) * brute_count, stream[stream_index * 2]) ; 
    // cudaMemcpyAsync(brute_dev, brute, sizeof(int4) * brute_count ,cudaMemcpyHostToDevice, stream[stream_index * 2]) ; 
     // pointer for zero copy
-      cudaHostGetDevicePointer(&brute_dev, brute, 0);
+   cudaHostGetDevicePointer(&brute_dev, brute, 0);
 //    if (cudaStat != cudaSuccess)
 //    {
 //         printf (" we got em ;) \n");
@@ -561,11 +574,6 @@ void lsh_thread(des_t_h2 * R, des_t_h2 * Q, uint32_t q_n, uint32_t r_n, uint32_t
     brute_2nn_h<<<grid_brute, block_brute, shared_size *sizeof( des_t_h2 ) ,stream[stream_index * 2 ] >>>(min_2_index, shared_size, index_r_dev, index_q_dev, brute_dev, Q, R, matches) ; 
     
     cudaStreamSynchronize(stream[stream_index * 2 ]) ;
-    
-
-
-   
-
 }
 
 typedef enum {
@@ -784,7 +792,7 @@ int lsh_gpu(void * q_points, void * r_points, int type, uint32_t q_n, uint32_t r
             cublasSetStream(handle, stream[in_use_threads * 2 + 1]) ; 
             // stat =
             cublasHgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, rand_array_size, r_n, 128, &a, (half *)rand_array_dev[in_use_threads], rand_array_size, (half *)R, 128, &b, (half *)dot_res_r[in_use_threads], rand_array_size);
-           threads[in_use_threads] = std::thread(lsh_thread, R, Q, q_n, r_n, matches, threshold, rand_array_size, (des_t_h2 * )(rand_array_dev[in_use_threads]),
+            threads[in_use_threads] = std::thread(lsh_thread, R, Q, q_n, r_n, matches, threshold, rand_array_size, (des_t_h2 * )(rand_array_dev[in_use_threads]),
                                     (half2 * )(dot_res_r[in_use_threads]), (half2 *)(dot_res_q[in_use_threads]), (int * )(code_r_dev[in_use_threads]), (int * )(code_r_host[in_use_threads]), 
                                     (int *)(code_q_dev[in_use_threads]), (int *)(code_q_host[in_use_threads]), (int *)(index_r_dev[in_use_threads]), (int *)(index_r_host[in_use_threads]),
                                     (int *)(index_q_dev[in_use_threads]), (int *)(index_q_host[in_use_threads]),(int2 * )(buckets_r[in_use_threads]), (int2 * )(buckets_q[in_use_threads]),(int4 *)(brute_host[in_use_threads]), 
@@ -793,7 +801,7 @@ int lsh_gpu(void * q_points, void * r_points, int type, uint32_t q_n, uint32_t r
            in_use_threads ++ ; 
     }
 
-    if(number_threads == in_use_threads)
+    if(active_threads == in_use_threads)
     {
         in_use_threads = 0 ; 
     }
@@ -832,14 +840,14 @@ int lsh_gpu(void * q_points, void * r_points, int type, uint32_t q_n, uint32_t r
     for (int i = 0; i < (active_threads + 1); i++)
     {
         printf("%i last started \n", last_started); 
-        last_started = ((last_started - 1 ) == -1 ) ? (number_threads - 1) :  (last_started - 1) ;  
+        last_started = ((last_started - 1 ) == -1 ) ? (active_threads - 1) :  (last_started - 1) ;  
     }
      
     for (int i = 0; i < (active_threads); i++)
     {
         printf("wait on %i \n", last_started) ; 
         threads[last_started].join() ; 
-        last_started = ((last_started + 1 ) == number_threads) ? (0) :  (last_started + 1 ) ;  
+        last_started = ((last_started + 1 ) == active_threads) ? (0) :  (last_started + 1 ) ;  
     }
     dim3 grid((q_n/32) +1,1,1); 
     dim3 block(32,1,1) ; 
