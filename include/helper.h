@@ -13,3 +13,6 @@ void make_rand_vector(int dim, des_t_f &vec) ;
 
 void make_rand_vector_h(int dim, des_t_h &vec) ; 
 void make_rand_vec_array_h(int dim, int size, des_t_h *array) ; 
+
+
+void print_time_x_y(double start, double x, double avg) ; 

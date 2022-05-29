@@ -37,7 +37,9 @@ void make_vec(int dim, des_t_f &vec)
 
      //   vector[i] = (static_cast<float>(rand()) / static_cast<float>(RAND_MAX)) -0.5 ;
      //   }
-        vector[i] = (static_cast<float>(rand()) / static_cast<float>(RAND_MAX)) -0.5 ;
+        // vector[i] = (static_cast<float>(rand()) / static_cast<float>(RAND_MAX)) -0.5 ;
+
+            vector[i] = ( (((static_cast<float>(rand()) / static_cast<float>(RAND_MAX))) - 0.5) >= 0) ? 1 : -1; 
     } 
 }
 
@@ -407,9 +409,9 @@ void lsh_test(des_t_f *q_points, des_t_f *r_points, int n_q, int n_r, float4 *so
     double total_db = (double)total_byte ;
     double used_db = total_db - free_db ;
 
-    printf("GPU memory usage: used = %f, free = %f MB, total = %f MB\n",
+    // printf("GPU memory usage: used = %f, free = %f MB, total = %f MB\n",
 
-         used_db/1024.0/1024.0, free_db/1024.0/1024.0, total_db/1024.0/1024.0);
+    //      used_db/1024.0/1024.0, free_db/1024.0/1024.0, total_db/1024.0/1024.0);
     
 
     int size_bucket = 0 ;

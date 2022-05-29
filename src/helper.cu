@@ -14,6 +14,12 @@ void print_time(double start, const char *  s)
     double time = start_timer() - start;
     printf("%s took %lf time \n", s, time) ;      
 }
+
+void print_time_x_y(double start, double x, double avg)
+{
+    double time = start_timer() - start;
+    printf("%lf %lf\n",time / avg, x) ;      
+}
 // compare stuff 
 void compare_float(float x, float y)
 {

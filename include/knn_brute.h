@@ -18,8 +18,9 @@ void cublas_2nn_brute_f(des_t_f * q_points, des_t_f * r_points, int q_n, int r_n
 void cublas_2nn_f(des_t_f * q_points, des_t_f * r_points, int q_n, int r_n, float4  * sorted, cublasHandle_t handle); 
 
 //half float 
-int cublas_2nn_sift(void * q_points, void * r_points, int type, uint32_t q_n, uint32_t r_n, uint32_t * matches, float threshold, cublasHandle_t  handle, int stream_n) ; 
-int cublas_2nn_sift_batch(void * q_points, des_t_h2 * Q, int type, des_t_h2 * R, uint32_t q_n, uint32_t r_n, half2 * dist, uint32_t * matches, float threshold, cublasHandle_t handle, cudaStream_t stream); 
+
+int cublas_2nn_sift(void * q_points, void * r_points, int type, uint32_t q_n, uint32_t r_n, uint32_t * matches, float threshold, cublasHandle_t handle, int stream_n, size_t use, int warps) ; 
+int cublas_2nn_sift_batch(void * q_points, des_t_h2 * Q, int type, des_t_h2 * R, uint32_t q_n, uint32_t r_n, half2 * dist, uint32_t * matches, float threshold, cublasHandle_t handle, cudaStream_t stream, int warps); 
 __global__ void find_matches(half2 *  dist, int size , uint32_t * matches, float threshold); 
 __global__ void float2half(float * points, half2 * output) ; 
 __device__ inline void min_half(__half2  &min_2, __half2 temp, int2 &index, int2 temp_index); 

@@ -58,12 +58,12 @@ typedef union
 
 void make_vec_h(int nbits, des_t_h2 * vec) ; 
 
-__global__ void set_bit_h(int * buckets, int nbits, half2 * dot, int size) ; 
+__global__ void set_bit_h(int * buckets, int nbits, half2 * dot, int size, int * index) ; 
 
 
 __device__ inline void reduce_h(half &var); 
 //make bucket  
-void lsh_thread_dot_sort_reduce(des_t_h2 * points, uint32_t size, des_t_h2 * rand_array, int rand_array_size, half2 * dot_res, int * code_host, int * code_dev, int * index_host, int * index_dev, int2 * buckets, 
+void lsh_thread_sort_reduce(des_t_h2 * points, uint32_t size, des_t_h2 * rand_array, int rand_array_size, half2 * dot_res, int * code_host, int * code_dev, int * index_host, int * index_dev, int2 * buckets, 
                                 cudaStream_t stream, int &buckets_after_reduce) ; 
 
 int lsh_gpu(void * q_points, void * r_points, int type, uint32_t q_n, uint32_t r_n, uint32_t * matches, float threshold, cublasHandle_t handle, int stream_n, int l, int lsh_type, int nbits) ; 
