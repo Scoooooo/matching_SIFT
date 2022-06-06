@@ -10,5 +10,4 @@ make only works for compute capability of 86 or up
 
 Shows time used for LSH on GPU, brute-force using cuBLAS and Naive CUDA brute force on the ANN_SIFT1M data set. Time is in
 seconds and is represented by the y value, the lower the better. The brute-force approaches are represented as straight lines, while LSH on GPU
-shows the best results at different number of bits used for hash value, at different levels of precision. The brute-force with cuBLAS bit stands for the
-level of precision used for the cuBLAS GEMM call, 16 or 32 bit
+shows the best results at different number of bits used for hash value, at different levels of precision (recall is around 0.8). The brute-force with cuBLAS bit stands for the level of precision used for the cuBLAS GEMM call, 16 or 32 bit
